@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+    #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
 Created on Mon Apr  5 10:48:43 2021
@@ -30,7 +30,7 @@ class DAwithPyroom(object):
         Start the class with the dataset path and turn the float32 flag for
         output format, False for int16 format
         """
-        self.x_data = np.load(input_path)
+        self.x_data = np.load(input_path, allow_pickle=True)
         self.noise_data = np.load(noise_path, allow_pickle=True)
         self.float_flag = float_flag
         self.ds_name = ds_name
@@ -226,7 +226,7 @@ class DAwithPyroom(object):
         
         if np.sum(others_current_audio) == 0:
             print("Offset failed!")
-            pdb.set_trace()
+            # pdb.set_trace()
 
         # Apply gain value and convert to required output format
         signal_offset_norm  = self.norm_others_float32(others_current_audio,
@@ -302,9 +302,9 @@ class DAwithPyroom(object):
         indx_others_3 = random.randint(0, len(self.x_data)-1)
         indx_noise_4 = random.randint(0, len(self.noise_data)-1)
 
-        others_audio1 = self.x_data[indx_others_1, :].astype('float32')
-        others_audio2 = self.x_data[indx_others_2, :].astype('float32')
-        others_audio3 = self.x_data[indx_others_3, :].astype('float32')
+        others_audio1 = self.x_data[indx_others_1].astype('float32')
+        others_audio2 = self.x_data[indx_others_2].astype('float32')
+        others_audio3 = self.x_data[indx_others_3].astype('float32')
         noise_audio4 = self.noise_data[indx_noise_4].astype('float32')
         # noise_audio4 = self.noise_data[indx_noise_4, :].astype('float32')
 
@@ -405,7 +405,7 @@ class DAwithPyroom(object):
         # global counter_small
         prev_time = time.process_time()
         for indx in range(0, self.x_data.shape[0]):
-            single_signal = self.x_data[indx, :]
+            single_signal = self.x_data[indx]
             single_signal_trimmed = np.trim_zeros(single_signal)
 
             if single_signal_trimmed.dtype.kind != 'f':
