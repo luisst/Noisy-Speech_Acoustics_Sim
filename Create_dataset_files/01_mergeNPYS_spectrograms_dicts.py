@@ -19,10 +19,10 @@ from numpys_to_dataset_utils import locate_single_txt, check_empty_folder, \
 
 
 
-src_dir = '/home/luis/Documents/TS_EN_phrases'
+src_dir = '/home/luis/Documents/TS_ES_phrases'
 lang_ph = src_dir.split('/')[-1].split('_')[1]
 
-calculate_specs = False
+calculate_specs = True
 calculate_dicts = True
 
 input_transcript_path = locate_single_txt(src_dir)
@@ -31,7 +31,7 @@ src_transcr_path = pj(src_dir, 'transcript.txt')
 
 src_folders = sorted([name for name in os.listdir(src_dir) if os.path.isdir(os.path.join(src_dir, name))])
 
-# filter folders that are empty
+# filter folders that have the '_ALL' ending
 numpys_src_folders = check_empty_folders_list(src_dir, src_folders)
 
 t_start = time.time()

@@ -13,6 +13,7 @@ import time
 import librosa
 import inspect
 import pdb
+import soundfile as sf
 
 from cfg_pyroom import abs_coeff, fs, i_list
 
@@ -26,20 +27,19 @@ def log_message(msg, log_file, mode, both=True):
     if both:
         print(msg, end='')
 
-class DAwithPyroom(object):
+class DAwithPyroom2(object):
     """
     Class for audio simulation using pyroom.
     input signal + 4 random crosstalk + background noise
     """
 
-    def __init__(self, input_path, noise_path,
+    def __init__(self, noise_path,
                  room_cfg, proc_log, DA_number, float_flag=True, ds_name='0',
                  total_ite=1, num_ite = 0):
         """
         Start the class with the dataset path and turn the float32 flag for
         output format, False for int16 format
         """
-        self.x_data = np.load(input_path, allow_pickle=True)
         self.noise_data = np.load(noise_path, allow_pickle=True)
         self.float_flag = float_flag
         self.ds_name = ds_name
@@ -50,11 +50,9 @@ class DAwithPyroom(object):
         self.x_data_DA = []
         self.num_ite = num_ite
         self.DA_number = DA_number
-        self.num_total = int((self.x_data).shape[0]*total_ite)
 
         global counter_small
         counter_small = 0
-
 
     def gen_random_on_range(self, lower_value, max_value):
         """
@@ -100,39 +98,6 @@ class DAwithPyroom(object):
         
         return signal_trimmed
 
-
-    def n32(self, audio_float32, gain_value=1):
-        """
-        Normalize float32 audio with the gain value provided
-        """
-        if audio_float32.dtype.kind != 'f':
-            raise TypeError("'dtype' must be a floating point type")
-
-        vmin = audio_float32.min()
-        vmax = audio_float32.max()
-
-        audio_gained = audio_float32*gain_value
-
-        vmin_gained = audio_gained.min()
-        vmax_gained = audio_gained.max()
-
-        # try_inspect = inspect.stack()
-        # print(try_inspect[2].function)
-        # print(try_inspect[2].code_context)
-        # print("-------")
-        # print(try_inspect[1].function)
-        # print(try_inspect[1].code_context)
-        # print('Vin: {} | {} --- Vout: {} | {}'.format(vmin,
-        #                                               vmax,
-        #                                               vmin_gained,
-        #                                               vmax_gained))
-        # print(" ***** --------- ********  ")
-        # print("\n")
-        # print("\n")
-        # audio_float32 = (outmax - outmin)*(audio_float32 - vmin)/(vmax - vmin) \
-        #     + outmin
-        return audio_gained
-
     def norm_others_float32(self, audio_float32, gain_value, outmin, outmax):
         """
         Normalize float32 audio with the gain value provided
@@ -168,27 +133,7 @@ class DAwithPyroom(object):
                     || function {try_inspect[1].function} | context{try_inspect[1].code_context}\n"
             log_message(msg, self.proc_log, 'a', True)
 
-
-
         return audio_gained
-
-    def conv_2_int16(self, audio_float32, gain_value=1):
-        """
-        Converts float32 audio to int16 using
-        the int16 min and max values by default
-        """
-        if audio_float32.dtype.kind != 'f':
-            raise TypeError("'dtype' must be a floating point type")
-
-        outmin = int(-32768*gain_value)
-        outmax = int(32768*gain_value)
-
-        vmin = audio_float32.min()
-        vmax = audio_float32.max()
-
-        audio_int16 = (outmax - outmin)*(audio_float32 - vmin)/(vmax - vmin) + outmin
-        audio_int16 = audio_int16.astype('int16')
-        return audio_int16
 
     def audio_mod(self, signal, gain_value, offset_value,
                   length_current_audio, outmin_current, outmax_current):
@@ -280,144 +225,6 @@ class DAwithPyroom(object):
 
         return signal_offset_norm
 
-    def sim_single_signal(self, input_signal, position=0, indx=0):
-        """
-        Pyroomacoustics simulation with 3 random other audios
-        from the same x_data + 1 noise from AudioSet
-        """
-
-        length_current_audio = len(input_signal)
-        outmin_current = input_signal.min()
-        outmax_current = input_signal.max()
-
-        # Load others audios
-        indx_others_1 = random.randint(0, len(self.x_data)-1)
-        indx_others_2 = random.randint(0, len(self.x_data)-1)
-        indx_others_3 = random.randint(0, len(self.x_data)-1)
-        indx_noise_4 = random.randint(0, len(self.noise_data)-1)
-
-        others_audio1 = self.x_data[indx_others_1].astype('float32')
-        others_audio2 = self.x_data[indx_others_2].astype('float32')
-        others_audio3 = self.x_data[indx_others_3].astype('float32')
-        noise_audio4 = self.noise_data[indx_noise_4].astype('float32')
-        # noise_audio4 = self.noise_data[indx_noise_4, :].astype('float32')
-
-
-        others_audio1 = np.trim_zeros(others_audio1)
-        others_audio2 = np.trim_zeros(others_audio2)
-        others_audio3 = np.trim_zeros(others_audio3)
-        noise_audio4 = np.trim_zeros(noise_audio4)
-
-
-        offset_value1 = self.gen_random_on_range(-0.4, 0.4)
-        offset_value2 = self.gen_random_on_range(-0.4, 0.4)
-        offset_value3 = self.gen_random_on_range(-0.4, 0.4)
-
-        gain_value1 = self.gen_random_on_range(0.15, 0.25)
-        gain_value2 = self.gen_random_on_range(0.08, 0.14)
-        gain_value3 = self.gen_random_on_range(0.08, 0.13)
-        gain_value4 = self.gen_random_on_range(0.08, 0.11)
-
-
-        audio_offset1 = self.audio_mod(others_audio1, gain_value1,
-                                       offset_value1, length_current_audio,
-                                       outmin_current, outmax_current)
-        audio_offset2 = self.audio_mod(others_audio2, gain_value2,
-                                        offset_value2, length_current_audio,
-                                        outmin_current, outmax_current)
-        audio_offset3 = self.audio_mod(others_audio3, gain_value3,
-                                        offset_value3, length_current_audio,
-                                        outmin_current, outmax_current)
-        audio_offset4 = self.noise_mod(noise_audio4, gain_value4,
-                                        length_current_audio,
-                                        outmin_current, outmax_current)
-
-        audio_original = input_signal[0:length_current_audio]
-
-        # Create 3D room and add sources
-        room = pra.ShoeBox(self.room_cfg[0],
-                           fs=fs,
-                           absorption=abs_coeff,
-                           max_order=12)
-
-        src_dict = self.room_cfg[2]
-
-        room.add_source(src_dict["src_{}".format(i_list[position])],
-                        signal=audio_original)
-        room.add_source(src_dict["src_{}".format(i_list[position-3])],
-                        signal=audio_offset1)
-        room.add_source(src_dict["src_{}".format(i_list[position-2])],
-                        signal=audio_offset2)
-        room.add_source(src_dict["src_{}".format(i_list[position-1])],
-                        signal=audio_offset3)
-        room.add_source(src_dict["src_{}".format(i_list[position])],
-                        signal=audio_offset4)
-
-        # Define microphone array
-        mic_dict = self.room_cfg[1]
-        R = np.c_[mic_dict["mic_0"], mic_dict["mic_0"]]
-        room.add_microphone_array(pra.MicrophoneArray(R, room.fs))
-
-        # Compute image sources
-        room.image_source_model()
-        room.simulate()
-
-        # Simulate audio
-        raw_sim_audio = room.mic_array.signals[0, :]
-
-        sum_noise = np.sum(raw_sim_audio)
-        if np.isnan(sum_noise):
-            msg = f">>> NaN found after pyroom | Index: {self.num_ite}\n"
-            msg += f"{indx} -- {self.ds_name}. {indx_others_1} {indx_others_2} {indx_others_3}, noise {indx_noise_4}. Len {length_current_audio}\n"
-            log_message(msg, self.proc_log, 'a', True)
-
-        # Convert to required output format
-        if self.float_flag:
-            sim_audio = raw_sim_audio
-            # sim_audio = self.n32(raw_sim_audio)
-        else:
-            sim_audio = self.conv_2_int16(raw_sim_audio)
-
-        return sim_audio
-
-    def sim_dataset(self, position=0):
-        # global counter_small
-        prev_time = time.process_time()
-        for indx in range(0, self.x_data.shape[0]):
-            single_signal = self.x_data[indx]
-            single_signal_trimmed = np.trim_zeros(single_signal)
-
-            if single_signal_trimmed.dtype.kind != 'f':
-                raise TypeError("'dtype' must be a floating point type")
-                
-                
-            single_signal_trimmed = librosa.effects.time_stretch(single_signal_trimmed, 1.1)
-
-            single_x_DA = self.sim_single_signal(single_signal_trimmed
-                                                 .astype('float32'),
-                                                 position,
-                                                 indx)
-
-
-            single_x_DA_trimmed = self.eliminate_noise_start_ending(single_x_DA, 0.00001)
-            self.x_data_DA.append(single_x_DA_trimmed)
-
-
-            current_percentage = 100*(self.num_ite/self.num_total)
-
-            if indx%500 == 0:
-
-                current_time_100a = time.process_time()
-                time_100a = current_time_100a - prev_time
-
-                msg = f"DA{self.DA_number}: {indx} - {self.num_ite} - {current_percentage:.2f}% | time for 100 audios: {time_100a:.2f}\n"
-                log_message(msg, self.proc_log, 'a', True)
-                prev_time = current_time_100a
-
-            self.num_ite += 1
-
-        print("These number of small audios:" + str(counter_small))
-        return self.x_data_DA, self.num_ite
 
     def sim_same_speaker(self, input_signal, position=0, indx=0, noise_flag = False):
         """
@@ -454,6 +261,7 @@ class DAwithPyroom(object):
 
         src_dict = self.room_cfg[2]
 
+        # print(f'Current position {position}')
         room.add_source(src_dict["src_{}".format(i_list[position])],
                         signal=audio_original)
         if noise_flag:
@@ -480,15 +288,13 @@ class DAwithPyroom(object):
 
         return raw_sim_audio
 
-    def sim_dataset_single_speaker(self, list_indexes, position=0, noise_flag = False):
+
+    def sim_interviews_dataset(self, list_audios_pth, noise_flag = True):
         # global counter_small
         prev_time = time.process_time()
-        for indx in list_indexes:
-            single_signal = self.x_data[indx]
-            print(f'shape of signal: {single_signal.shape}')
-            # print(single_signal)
+        for indx in range(0, len(list_audios_pth)):
+            single_signal, samplerate = sf.read(list_audios_pth[indx]) 
             single_signal_trimmed = np.trim_zeros(single_signal)
-            # single_signal_trimmed = single_signal
 
             if single_signal_trimmed.dtype.kind != 'f':
                 raise TypeError("'dtype' must be a floating point type")
@@ -498,64 +304,25 @@ class DAwithPyroom(object):
 
             single_x_DA = self.sim_same_speaker(single_signal_trimmed
                                                  .astype('float32'),
-                                                 position,
-                                                 indx,
-                                                 noise_flag=noise_flag)
+                                                 position=random.choice([0,1,2]),
+                                                 indx=indx,
+                                                 noise_flag = noise_flag)
 
 
             single_x_DA_trimmed = self.eliminate_noise_start_ending(single_x_DA, 0.00001)
             self.x_data_DA.append(single_x_DA_trimmed)
 
 
-            current_percentage = 100*(self.num_ite/self.num_total)
+            current_percentage = 100*(self.num_ite/len(list_audios_pth))
 
-            if indx%20 == 0:
+            if indx%10 == 0:
 
-                current_time_100a = time.process_time()
-                time_100a = current_time_100a - prev_time
+                current_time_10a = time.process_time()
+                time_10a = current_time_10a - prev_time
 
-                msg = f"DA{self.DA_number}: {indx} - {self.num_ite} - {current_percentage:.2f}% | time for 100 audios: {time_100a:.2f}\n"
+                msg = f"DA{self.DA_number}: {indx} - {self.num_ite} - {current_percentage:.2f}% | time for 100 audios: {time_10a:.2f}\n"
                 log_message(msg, self.proc_log, 'a', True)
-                prev_time = current_time_100a
-
-            self.num_ite += 1
-
-        print("These number of small audios:" + str(counter_small))
-        return self.x_data_DA, self.num_ite
-
-    def sim_interviews_dataset(self, position=0):
-        # global counter_small
-        prev_time = time.process_time()
-        for indx in range(0, self.x_data.shape[0]):
-            single_signal = self.x_data[indx]
-            single_signal_trimmed = np.trim_zeros(single_signal)
-
-            if single_signal_trimmed.dtype.kind != 'f':
-                raise TypeError("'dtype' must be a floating point type")
-                
-                
-            single_signal_trimmed = librosa.effects.time_stretch(single_signal_trimmed, 1.1)
-
-            single_x_DA = self.sim_single_signal(single_signal_trimmed
-                                                 .astype('float32'),
-                                                 position,
-                                                 indx)
-
-
-            single_x_DA_trimmed = self.eliminate_noise_start_ending(single_x_DA, 0.00001)
-            self.x_data_DA.append(single_x_DA_trimmed)
-
-
-            current_percentage = 100*(self.num_ite/self.num_total)
-
-            if indx%500 == 0:
-
-                current_time_100a = time.process_time()
-                time_100a = current_time_100a - prev_time
-
-                msg = f"DA{self.DA_number}: {indx} - {self.num_ite} - {current_percentage:.2f}% | time for 100 audios: {time_100a:.2f}\n"
-                log_message(msg, self.proc_log, 'a', True)
-                prev_time = current_time_100a
+                prev_time = current_time_10a
 
             self.num_ite += 1
 

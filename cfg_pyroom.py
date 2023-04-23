@@ -132,8 +132,51 @@ src_dict_pred_ext  = {"src_0": [2.482, 2.705, 0.357], # d =
             "src_2": [2.177, 3.328, 0.510], # d =
             "src_3": [2.898, 3.328, 0.334]} # d =
 
-all_cfg = {"gt_ext":[shoebox_vals_gt_ext, mic_dict_gt_ext, src_dict_gt_ext] }
-           
+# ### NEW PAPER SEBASTIAN
+shoebox_vals_2022Paper = [5.5, 5.2, 2.4251]
+
+
+mic_dict_2022Paper = {"mic_0": [2.4318, 2.4572, 0],
+                      "mic_1": [2.5318, 2.4572, 0]}
+
+src_dict_2022Paper  = {"src_0": [2.108406513, 2.553870431, 0.148858021],
+            "src_1": [2.635364589, 2.943700687, 0.304752965],
+            "src_2": [2.880524132, 1.941658035, 0.204211794],
+            "src_3": [2.849900798, 2.407098498, 0.127735472]}
+
+all_cfg = {"paper2022":[shoebox_vals_2022Paper, mic_dict_2022Paper, src_dict_2022Paper] }
+
+# shoebox_general = [5.5, 5.2, 2.2]
+# mic_dict_general = {"mic_0": [2.75, 2.6, 0],
+#                     "mic_1": [2.85, 2.6, 0]}
+
+# src_list = {"src_0": [2.508, 2,000, 0.355],
+#             "src_0": [2.482, 2.705, 0.357],
+#             "src_0": [2.000, 2.622, 0.33],
+#             "src_0": [2.050, 2.533, 0.355],
+
+
+
+#             "src_1": [2, 2.787, 0.432],
+#             "src_2": [2, 3.219, 0.469],
+#             "src_3": [2.787, 3.371, 0.457],
+#             }
+
+# src_dict_pred_ext  = {
+#             "src_1": [2, 2.705, 0.516], # d =
+#             "src_2": [2.177, 3.328, 0.510], # d =
+#             "src_3": [2.898, 3.328, 0.334]} # d =
+
+# src_dict = {
+#             "src_1": [2.381, 2, 0.432], # d = 
+#             "src_2": [3, 3.4, 0.33], # d = 
+#             "src_3": [2.762, 2, 0.3]} # d =
+# src_dict = {
+#             "src_1": [2.025, 2.92, 0.33], # d = 
+#             "src_2": [2.685, 2, 0.381], # d = 
+#             "src_3": [2.431, 3.295, 0.33]} # d = 
+
+# multiple_speakers_cfg = {"coverage2022": {shoebox_general, mic_dict_general, src_list}}
 
 
 # all_cfg = {"pred_tab": [shoebox_vals_pred_tab, mic_dict_pred_tab, src_dict_pred_tab],
@@ -142,18 +185,6 @@ all_cfg = {"gt_ext":[shoebox_vals_gt_ext, mic_dict_gt_ext, src_dict_gt_ext] }
 #            "bs_ext": [shoebox_vals_bs_ext, mic_dict_bs_ext, src_dict_bs_ext],
 #            "gt_tab":[shoebox_vals_gt_tab, mic_dict_gt_tab, src_dict_gt_tab],
 #            "gt_ext":[shoebox_vals_gt_ext, mic_dict_gt_ext, src_dict_gt_ext]}
-
-
-### Original setup
-# shoebox_vals = [6, 7, 2.2]
-
-# mic_dict = {"mic_0": [3, 4, 0],
-#             "mic_1": [3.1, 4, 0]}
-
-# src_dict = {"src_0": [4, 5.75, 1], # d = 2.345 | 2D: 1.8
-#             "src_1": [2, 6.5, 1.5], # d = 4.123 | 2D: 3.6
-#             "src_2": [1, 3.5, 1.5], # d = 5.2201 | 2D: 5
-#             "src_3": [4.5, 2, 1]} # d = 6.8738 | 2D: 6.7
 
 
 i_list = [0,1,2,3]
