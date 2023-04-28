@@ -308,6 +308,7 @@ class DAwithPyroom(object):
                             noise_gain_low, noise_gain_high,
                             dist_e1, dist_e2):
 
+
         length_current_audio, outmin_current, outmax_current = current_audio_info 
 
         if random.choice([True, False]):
