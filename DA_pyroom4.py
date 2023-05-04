@@ -419,11 +419,12 @@ class DAwithPyroom(object):
     def create_long_audio_others(self, current_audio_info, num_segments = 20, num_min = 3, verbose = False):
 
         # Generate initial offset
-        # offset_value = self.gen_random_on_range(self.min_offset_secs*self.sr, self.max_offset_secs*self.sr)
+        offset_value = self.gen_random_on_range(self.min_offset_secs*self.sr, self.max_offset_secs*self.sr)
 
+        print(f'Offset in secs: {round(offset_value/self.sr, 2)}')
         # Divide the 8 minutes into segments and randomly assign each segment to an audio file
-        # segments = np.linspace(0 + offset_value, num_min*60*self.sr + offset_value, num_segments + 1)
-        segments = np.linspace(0, num_min*60*self.sr, num_segments + 1)
+        segments = np.linspace(0 + offset_value, num_min*60*self.sr + offset_value, num_segments + 1)
+        # segments = np.linspace(0, num_min*60*self.sr, num_segments + 1)
         segment_limits = [(segments[i], segments[i+1]) for i in range(num_segments)]
         random.shuffle(segment_limits)
 
@@ -441,12 +442,12 @@ class DAwithPyroom(object):
 
             if verbose:
                 print(f'\nIndex selected: {random_idx} \t {limit_lower}({round(limit_lower/self.sr, 2)}) - {limit_upper}({round(limit_upper/self.sr, 2)})')
-            # ext_audio_raw, ext_length = self.extend_audio(current_audio, limit_lower, limit_upper, idx, num_min = num_min, offset_samples = offset_value)
-            ext_audio_raw, ext_length = self.extend_audio(current_audio, limit_lower, limit_upper, idx, num_min = num_min)
+            ext_audio_raw, ext_length = self.extend_audio(current_audio, limit_lower, limit_upper, idx, num_min = num_min, offset_samples = offset_value)
+            # ext_audio_raw, ext_length = self.extend_audio(current_audio, limit_lower, limit_upper, idx, num_min = num_min)
 
-            # ext_audio = ext_audio_raw[0:num_min*60*self.sr]
+            ext_audio = ext_audio_raw[0:num_min*60*self.sr]
 
-            print(f'Current segment extended {idx}: {len(ext_audio_raw)}')
+            # print(f'Current segment extended {idx}: {len(ext_audio_raw)}')
             list_of_audios.append(ext_audio_raw)
 
         result_audio = self.sum_arrays(list_of_audios)
@@ -516,8 +517,8 @@ class DAwithPyroom(object):
 
         current_audio_info = [length_current_audio, outmin_current, outmax_current]
 
-        # room.add_source(main_speaker_coords,
-        #                 signal=result_audio)
+        room.add_source(main_speaker_coords,
+                        signal=result_audio)
 
         single_cfg = {'mic': [mic_dict['mic_0'][0], mic_dict['mic_0'][1]],
                     'main': [main_speaker_coords[0], main_speaker_coords[1]],
@@ -530,8 +531,8 @@ class DAwithPyroom(object):
 
         for i in range(0, self.bk_num):
 
-            # result_audio, _ = self.create_long_audio_others(current_audio_info, num_segments = self.num_segments*2, num_min = self.num_min, verbose = False)
-            result_audio, _ = self.create_long_audio_others(current_audio_info, num_segments = self.num_segments, num_min = self.num_min, verbose = False)
+            result_audio, _ = self.create_long_audio_others(current_audio_info, num_segments = int(np.ceil(self.num_segments*2.5)), num_min = self.num_min, verbose = False)
+            # result_audio, _ = self.create_long_audio_others(current_audio_info, num_segments = self.num_segments, num_min = self.num_min, verbose = False)
 
             # Randomly select the coordinates based on position
             rand_coordinates_other = gen_rand_coordinates(shoebox_vals[0], shoebox_vals[1],
