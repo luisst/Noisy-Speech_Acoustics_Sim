@@ -59,7 +59,7 @@ my_sim = DAwithPyroom(INPUT_NPY_PATH, NOISE_PATH_E1_SOFT, NOISE_PATH_E2_LOUD,
                        min_gain = 0.7, max_gain = 1.0,
                     #    min_gain = 0.9, max_gain = 1.0,
                        min_offset = -0.4, max_offset = 0.4,
-                       bk_num = 5)
+                       bk_num = 4)
 
 # Simulate dataset with single speaker
 my_dataset_simulated = my_sim.sim_vad_dataset()

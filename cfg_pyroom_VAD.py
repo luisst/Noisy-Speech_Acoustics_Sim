@@ -142,7 +142,7 @@ for i in range(0,20):
 
 shoebox_vals = [room_x, room_y, 2.5]
 
-abs_coeff = 0.7
+abs_coeff = 0.4
 
 fs = 16000
 
