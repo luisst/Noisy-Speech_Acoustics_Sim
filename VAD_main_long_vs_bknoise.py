@@ -37,6 +37,10 @@ NOISE_PATH_E1_SOFT = Path.home().joinpath('Dropbox','DATASETS_AUDIO',
 NOISE_PATH_E2_LOUD = Path.home().joinpath('Dropbox','DATASETS_AUDIO', 
                                       'WAV_TTS', 'noise_E2.npy')
 
+
+NOISE_PATH_E3_DISTANCE = Path.home().joinpath('Dropbox','DATASETS_AUDIO', 
+                                      'WAV_TTS', 'noise_E3.npy')
+
 BASE_PATH = INPUT_NPY_PATH.parent 
 
 output_folder = BASE_PATH.joinpath('VAD_synthetic')
@@ -55,8 +59,9 @@ list_audio_paths = sorted(list(audio_folder_pth.glob('*.wav')))
 
 # DA Pyroom Object Instance
 my_sim = DAwithPyroom(INPUT_NPY_PATH, NOISE_PATH_E1_SOFT, NOISE_PATH_E2_LOUD, 
+                        NOISE_PATH_E3_DISTANCE,
                       proc_log, noise_flag = True,
-                       min_gain = 0.7, max_gain = 1.0,
+                       min_gain = 0.6, max_gain = 0.9,
                     #    min_gain = 0.9, max_gain = 1.0,
                        min_offset = -0.4, max_offset = 0.4,
                        bk_num = 4)

@@ -35,7 +35,7 @@ class DAwithPyroom(object):
     input signal + 4 random crosstalk + background noise
     """
 
-    def __init__(self, input_path, noise_path1, noise_path2, proc_log, noise_flag = False,
+    def __init__(self, input_path, noise_path1, noise_path2, noise_path3, proc_log, noise_flag = False,
                  min_gain = 0.9, max_gain = 1.00,
                  min_offset = -0.4, max_offset = 0.4, bk_num = 5):
         """
@@ -46,6 +46,7 @@ class DAwithPyroom(object):
         self.x_data = np.load(input_path, allow_pickle=True)
         self.noiseE1_data = np.load(noise_path1, allow_pickle=True)
         self.noiseE2_data = np.load(noise_path2, allow_pickle=True)
+        self.data_E3 = np.load(noise_path3, allow_pickle=True)
         self.proc_log = proc_log
         self.noise_flag = noise_flag
 
@@ -297,9 +298,10 @@ class DAwithPyroom(object):
 
         # signal_result = self.gain_variation(signal_offset_norm, init_reduce = 0.4, factor_min=2.4, factor_max=2.5, verbose=False)
         # return signal_result*1.6
-        signal_result = self.gain_variation(signal_offset_norm, init_reduce = 0.4, factor_min=2.0, factor_max=2.4, verbose=False)
+        # signal_result = self.gain_variation(signal_offset_norm, init_reduce = 0.4, factor_min=2.0, factor_max=2.4, verbose=False)
         # return signal_result*1.8
-        return signal_result
+        # return signal_result
+        return signal_offset_norm
 
     def noise_mod(self, noise, gain_value, length_current_audio,
                   outmin_current, outmax_current):
@@ -452,7 +454,7 @@ class DAwithPyroom(object):
 
             ext_audio = ext_audio_raw[0:num_min*60*self.sr]
 
-            print(f'Current segment extended {idx}: {len(ext_audio_raw)}')
+            # print(f'Current segment extended {idx}: {len(ext_audio_raw)}')
             list_of_audios.append(ext_audio)
 
         result_audio = self.sum_arrays(list_of_audios)
@@ -486,11 +488,46 @@ class DAwithPyroom(object):
                 print(f'\nIndex selected: {random_idx} \t {limit_lower} - {limit_upper} \t new length X_data: {len(index_list)}')
             ext_audio, ext_length = self.extend_audio(current_audio, limit_lower, limit_upper, idx, num_min=num_min)
 
+            if len(ext_audio) > num_min*60*self.sr:
+                print(f'ERROR!! Main audio length is {len(ext_audio)}')
+                ext_audio = ext_audio[0:num_min*60*self.sr]
+
             list_of_audios.append(ext_audio)
 
         result_audio = self.sum_arrays(list_of_audios)
         return result_audio, ext_length
 
+
+    def long_distance_noise(self, n=60, t=3):
+        audio_samples = random.sample(list(self.data_E3), n)
+
+        # Calculate the total length of all audio samples
+        total_audio_length = sum(len(audio) for audio in audio_samples)
+
+        while(True):
+            if (t*60*self.sr) < total_audio_length:
+                audio_samples.pop()
+                total_audio_length = sum(len(audio) for audio in audio_samples)
+                print(f'Value {n} is too big -> n-1')
+                continue
+            else:
+                # Calculate the maximum length of silence to insert between audio samples
+                max_silence_length = ((t * 60 * self.sr) - total_audio_length) // (n + 1)
+
+                # Create the final audio array
+                audio = np.zeros(t * 60 * self.sr)
+
+                # Insert each audio sample into the final audio array at a random position with silence in between
+                start = random.randint(0, max_silence_length)
+                for audio_sample in audio_samples:
+                    audio_length = len(audio_sample)
+                    end = start + audio_length
+                    audio[start:end] += audio_sample
+                    start = end + random.randint(0, max_silence_length)
+
+                # increased gain
+                audio_final_gained = audio
+                return audio_final_gained
 
     def sim_single_signal(self, input_signal, indx=0):
         """
@@ -521,6 +558,9 @@ class DAwithPyroom(object):
         outmax_current = result_audio.max()
 
         current_audio_info = [length_current_audio, outmin_current, outmax_current]
+
+        harmonic_exciter = librosa.effects.harmonic(result_audio, margin=8)
+        # result_audio += 0.8 * harmonic_exciter
 
         room.add_source(main_speaker_coords,
                         signal=result_audio)
@@ -568,6 +608,19 @@ class DAwithPyroom(object):
             
             room.add_source(noise_coords,
                             signal = noise_audio_long)
+        
+        # Distance E3 Noise
+        rand_coordinates_noise_E3 = gen_rand_coordinates(shoebox_vals[0], shoebox_vals[1],
+                                                          lower_left_point,
+                                                          upper_right_point, False)
+
+        long_noise_E3 = self.long_distance_noise(n=45, t = self.num_min)
+
+        output_path = f"long_noise_E3_X.wav"
+        sf.write(output_path, long_noise_E3, self.sr, subtype='FLOAT')
+
+        room.add_source(rand_coordinates_noise_E3,
+                        signal = long_noise_E3)
 
         # Define microphone array
         R = np.c_[mic_dict["mic_0"], mic_dict["mic_1"]]
