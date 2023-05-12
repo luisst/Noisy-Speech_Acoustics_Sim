@@ -107,9 +107,17 @@ def gen_rand_table_coords(lower_left_point, upper_right_point,
 
 
 
+# ### Define all room dimensions
+# room_x = 10
+# room_y = 11
+
+# ### Define the inner square
+# lower_left_point = (3., 2.)
+# upper_right_point = (6.,5.)
+
 ### Define all room dimensions
-room_x = 10
-room_y = 11
+room_x = 15
+room_y = 13
 
 ### Define the inner square
 lower_left_point = (3., 2.)

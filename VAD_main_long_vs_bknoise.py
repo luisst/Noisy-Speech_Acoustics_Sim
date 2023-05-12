@@ -3,6 +3,7 @@ import sounddevice as sd
 import soundfile as sf
 from pathlib import Path
 import time
+import shutil
 import sys
 
 from cfg_pyroom import fs, check_folder, all_cfg
@@ -45,6 +46,7 @@ BASE_PATH = INPUT_NPY_PATH.parent
 
 output_folder = BASE_PATH.joinpath('VAD_synthetic')
 proc_log = output_folder.joinpath('process_log.txt')
+OUTPUT_CSV_PATH = output_folder.joinpath('GT_logs')
 
 t_start = time.time()
 t_perf_start = time.perf_counter()
@@ -53,18 +55,24 @@ t_pc_start = time.process_time()
 if not(check_folder_for_process(output_folder)):
     sys.exit('goodbye')
 
+if not OUTPUT_CSV_PATH.exists():
+    OUTPUT_CSV_PATH.mkdir()
+else:
+    shutil.rmtree(OUTPUT_CSV_PATH)
+    OUTPUT_CSV_PATH.mkdir()
+
 # list of all audios
 list_audio_paths = sorted(list(audio_folder_pth.glob('*.wav')))
 
 
 # DA Pyroom Object Instance
 my_sim = DAwithPyroom(INPUT_NPY_PATH, NOISE_PATH_E1_SOFT, NOISE_PATH_E2_LOUD, 
-                        NOISE_PATH_E3_DISTANCE,
+                        NOISE_PATH_E3_DISTANCE, OUTPUT_CSV_PATH,
                       proc_log, noise_flag = True,
-                       min_gain = 0.6, max_gain = 0.9,
+                       min_gain = 0.35, max_gain = 0.7,
                     #    min_gain = 0.9, max_gain = 1.0,
                        min_offset = -0.4, max_offset = 0.4,
-                       bk_num = 4)
+                       bk_num = 7)
 
 # Simulate dataset with single speaker
 my_dataset_simulated = my_sim.sim_vad_dataset()
@@ -77,8 +85,10 @@ for idx_output in range(0, len(my_dataset_simulated)):
     new_name_wav = f'DA_long-{idx_output}.wav'
     output_path_wav = output_folder.joinpath(new_name_wav) 
 
+    current_length_output = len(my_dataset_simulated[idx_output])
+
     # Save as WAV 
-    sf.write(str(output_path_wav), my_dataset_simulated[idx_output], 16000)
+    sf.write(str(output_path_wav), my_dataset_simulated[idx_output], 16000, subtype='FLOAT')
 
 
 t_end = time.time()

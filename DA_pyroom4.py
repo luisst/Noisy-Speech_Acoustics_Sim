@@ -13,6 +13,7 @@ import time
 import librosa
 import inspect
 import pdb
+import csv
 import soundfile as sf
 
 from cfg_pyroom_VAD import cfg_info, gen_rand_coordinates, gen_rand_table_coords
@@ -35,7 +36,7 @@ class DAwithPyroom(object):
     input signal + 4 random crosstalk + background noise
     """
 
-    def __init__(self, input_path, noise_path1, noise_path2, noise_path3, proc_log, noise_flag = False,
+    def __init__(self, input_path, noise_path1, noise_path2, noise_path3, output_csv_path, proc_log, noise_flag = False,
                  min_gain = 0.9, max_gain = 1.00,
                  min_offset = -0.4, max_offset = 0.4, bk_num = 5):
         """
@@ -47,6 +48,7 @@ class DAwithPyroom(object):
         self.noiseE1_data = np.load(noise_path1, allow_pickle=True)
         self.noiseE2_data = np.load(noise_path2, allow_pickle=True)
         self.data_E3 = np.load(noise_path3, allow_pickle=True)
+        self.output_csv_path = output_csv_path
         self.proc_log = proc_log
         self.noise_flag = noise_flag
 
@@ -184,7 +186,7 @@ class DAwithPyroom(object):
         return audio_gained
 
 
-    def extend_audio(self, audio, limit_lower, limit_upper, idx, num_min = 3, offset_samples = 0, verbose = False):
+    def extend_audio(self, audio, limit_lower, limit_upper, idx, num_min = 3, offset_samples = 0, return_timestamps = False, verbose = False):
         # Load the input audio and get its length in seconds
         length = len(audio)
 
@@ -200,13 +202,17 @@ class DAwithPyroom(object):
         # Calculate the start and end indices of the exclusive portion for this audio file
         start_index = int(segment_start + (segment_end - segment_start) * random.random())
         end_index = start_index + len(audio)
-        if verbose:
-            print(f'start: {start_index} ({round(start_index/self.sr, 2)}) - end: {end_index} ({round(end_index/self.sr, 2)})')
+        # if verbose:
+        print(f'start: {start_index} ({round(start_index/self.sr, 2)}) - end: {end_index} ({round(end_index/self.sr, 2)})')
+
 
         # Place the original audio at the exclusive portion
         final_audio = np.concatenate((extended_audio[:start_index], audio, extended_audio[end_index:]))
         
-        return final_audio, ext_length
+        if return_timestamps:
+            return final_audio, ext_length, (start_index, end_index)
+        else:
+            return final_audio, ext_length
 
 
     def gain_variation(self, original_audio, init_reduce = 0.6, factor_min=2.0, factor_max=2.5, verbose=False):
@@ -296,12 +302,12 @@ class DAwithPyroom(object):
 
             pdb.set_trace()
 
-        # signal_result = self.gain_variation(signal_offset_norm, init_reduce = 0.4, factor_min=2.4, factor_max=2.5, verbose=False)
+        signal_result = self.gain_variation(signal_offset_norm, init_reduce = 0.4, factor_min=2.4, factor_max=2.5, verbose=False)
         # return signal_result*1.6
         # signal_result = self.gain_variation(signal_offset_norm, init_reduce = 0.4, factor_min=2.0, factor_max=2.4, verbose=False)
         # return signal_result*1.8
         # return signal_result
-        return signal_offset_norm
+        return signal_result
 
     def noise_mod(self, noise, gain_value, length_current_audio,
                   outmin_current, outmax_current):
@@ -339,7 +345,22 @@ class DAwithPyroom(object):
         others_audio = self.x_data[indx_others].astype('float32')
         others_audio = np.trim_zeros(others_audio)
         offset_value = self.gen_random_on_range(self.min_offset, self.max_offset)
+
         gain_value = self.gen_random_on_range(self.min_gain, self.max_gain)
+        min_value = self.min_gain
+        max_value = self.max_gain
+
+        mu = (min_value + max_value) / 2   # mean
+        sigma = (max_value - mu) / 2.5       # standard deviation
+
+        # Generate a list of 1000 random numbers between min_value and max_value
+        nums = []
+        for i in range(1000):
+            num = random.gauss(mu, sigma)
+            while num < min_value or num > max_value:
+                num = random.gauss(mu, sigma)
+        
+        gain_value = num
 
         audio_bk_ready = self.audio_mod(others_audio, gain_value,
                                        offset_value, length_current_audio,
@@ -418,7 +439,7 @@ class DAwithPyroom(object):
 
             selected_arrays.append(noise_ready)
             total_elements += np.size(noise_ready)
-            print(f'len total: {length_current_audio} \t noise_gain: {gain_value} \t cnt: {np.size(noise_ready)}')
+            # print(f'len total: {length_current_audio} \t noise_gain: {gain_value} \t cnt: {np.size(noise_ready)}')
 
         return np.concatenate(selected_arrays)
 
@@ -428,7 +449,7 @@ class DAwithPyroom(object):
         # Generate initial offset
         offset_value = self.gen_random_on_range(self.min_offset_secs*self.sr, self.max_offset_secs*self.sr)
 
-        print(f'Offset in secs: {round(offset_value/self.sr, 2)}')
+        # print(f'Offset in secs: {round(offset_value/self.sr, 2)}')
         # Divide the 8 minutes into segments and randomly assign each segment to an audio file
         segments = np.linspace(0 + offset_value, num_min*60*self.sr + offset_value, num_segments + 1)
         # segments = np.linspace(0, num_min*60*self.sr, num_segments + 1)
@@ -467,6 +488,7 @@ class DAwithPyroom(object):
         segments = np.linspace(0, num_min*60*self.sr, num_segments + 1)
         segment_limits = [(segments[i], segments[i+1]) for i in range(num_segments)]
         random.shuffle(segment_limits)
+        GT_log = []
 
         index_list = list(range(len(self.x_data) + 1))
         list_of_audios = []
@@ -486,7 +508,8 @@ class DAwithPyroom(object):
 
             if verbose:
                 print(f'\nIndex selected: {random_idx} \t {limit_lower} - {limit_upper} \t new length X_data: {len(index_list)}')
-            ext_audio, ext_length = self.extend_audio(current_audio, limit_lower, limit_upper, idx, num_min=num_min)
+            ext_audio, ext_length, timestamps_tuple = self.extend_audio(current_audio, limit_lower, limit_upper, idx, return_timestamps = True, num_min=num_min)
+            GT_log.append(timestamps_tuple)
 
             if len(ext_audio) > num_min*60*self.sr:
                 print(f'ERROR!! Main audio length is {len(ext_audio)}')
@@ -495,7 +518,7 @@ class DAwithPyroom(object):
             list_of_audios.append(ext_audio)
 
         result_audio = self.sum_arrays(list_of_audios)
-        return result_audio, ext_length
+        return result_audio, ext_length, GT_log
 
 
     def long_distance_noise(self, n=60, t=3):
@@ -551,7 +574,18 @@ class DAwithPyroom(object):
                                 verbose = False)
 
 
-        result_audio, ext_length = self.create_long_audio_main(num_segments = self.num_segments, num_min = self.num_min, verbose = False)
+        result_audio, ext_length ,GT_log = self.create_long_audio_main(num_segments = self.num_segments, num_min = self.num_min, verbose = False)
+
+        GT_log = sorted(GT_log, key = lambda x: x[0])
+        # specify filename for CSV file
+        filename = self.output_csv_path.joinpath(f'GT_{indx}.csv')
+        # open file for writing with tab delimiter
+        with open(filename, 'w', newline='') as csvfile:
+            writer = csv.writer(csvfile, delimiter='\t')
+
+            # write each tuple to a row in the file
+            for start, end in GT_log:
+                writer.writerow(['S0', round(start/self.sr,2), round(end/self.sr,2)])
 
         length_current_audio = len(result_audio)
         outmin_current = result_audio.min()
@@ -584,8 +618,11 @@ class DAwithPyroom(object):
                                                           lower_left_point,
                                                           upper_right_point, False)
 
+            if i == 1:
+                output_path = f"others_long_audio_sample.wav"
+                sf.write(output_path, result_audio, self.sr, subtype='FLOAT')
 
-            print(f'Length of {i}: {len(result_audio)}({round(len(result_audio)/self.sr, 2)})')
+            # print(f'Length of {i}: {len(result_audio)}({round(len(result_audio)/self.sr, 2)})')
 
             single_cfg['others'].append((rand_coordinates_other[0], rand_coordinates_other[1]))
 
@@ -599,7 +636,7 @@ class DAwithPyroom(object):
             output_path = f"long_noise_X.wav"
             sf.write(output_path, noise_audio_long, self.sr, subtype='FLOAT')
 
-            print(f'Length of noise: {len(noise_audio_long)}({round(len(noise_audio_long)/self.sr, 2)})')
+            # print(f'Length of noise: {len(noise_audio_long)}({round(len(noise_audio_long)/self.sr, 2)})')
 
             noise_x, noise_y, noise_z = mic_dict["mic_0"]
             noise_coords = [noise_x + self.noise_dist, noise_y + self.noise_dist, noise_z]
@@ -652,7 +689,7 @@ class DAwithPyroom(object):
         prev_time = time.process_time()
 
         # for indx in range(0, self.x_data.shape[0]):
-        for indx in range(0, 2):
+        for indx in range(0, 4):
             single_signal = self.x_data[indx]
             single_signal_trimmed = np.trim_zeros(single_signal)
 
@@ -667,11 +704,9 @@ class DAwithPyroom(object):
                                                  indx)
 
             
-            print(f'Length of sim audio: {len(single_x_DA)}({round(len(single_x_DA)/self.sr, 2)})')
 
             single_x_DA_trimmed = self.eliminate_noise_start_ending(single_x_DA, 0.00001)
 
-            print(f'Length of sim audio trimmed: {len(single_signal_trimmed)}({round(len(single_signal_trimmed)/self.sr, 2)})')
             self.x_data_DA.append(single_x_DA_trimmed)
 
             if indx%100 == 0:
