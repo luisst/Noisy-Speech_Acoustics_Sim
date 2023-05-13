@@ -203,7 +203,7 @@ class DAwithPyroom(object):
         start_index = int(segment_start + (segment_end - segment_start) * random.random())
         end_index = start_index + len(audio)
         # if verbose:
-        print(f'start: {start_index} ({round(start_index/self.sr, 2)}) - end: {end_index} ({round(end_index/self.sr, 2)})')
+            # print(f'start: {start_index} ({round(start_index/self.sr, 2)}) - end: {end_index} ({round(end_index/self.sr, 2)})')
 
 
         # Place the original audio at the exclusive portion
@@ -490,7 +490,7 @@ class DAwithPyroom(object):
         random.shuffle(segment_limits)
         GT_log = []
 
-        index_list = list(range(len(self.x_data) + 1))
+        index_list = list(range(len(self.x_data)))
         list_of_audios = []
 
         # Call the extend_audio function for each input audio file with its corresponding limit_lower and limit_upper values
@@ -689,7 +689,7 @@ class DAwithPyroom(object):
         prev_time = time.process_time()
 
         # for indx in range(0, self.x_data.shape[0]):
-        for indx in range(0, 4):
+        for indx in range(0, 1500):
             single_signal = self.x_data[indx]
             single_signal_trimmed = np.trim_zeros(single_signal)
 
