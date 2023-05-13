@@ -531,7 +531,7 @@ class DAwithPyroom(object):
             if (t*60*self.sr) < total_audio_length:
                 audio_samples.pop()
                 total_audio_length = sum(len(audio) for audio in audio_samples)
-                print(f'Value {n} is too big -> n-1')
+                # print(f'Value {n} is too big -> n-1')
                 continue
             else:
                 # Calculate the maximum length of silence to insert between audio samples
@@ -618,9 +618,9 @@ class DAwithPyroom(object):
                                                           lower_left_point,
                                                           upper_right_point, False)
 
-            if i == 1:
-                output_path = f"others_long_audio_sample.wav"
-                sf.write(output_path, result_audio, self.sr, subtype='FLOAT')
+            # if i == 1:
+            #     output_path = f"others_long_audio_sample.wav"
+            #     sf.write(output_path, result_audio, self.sr, subtype='FLOAT')
 
             # print(f'Length of {i}: {len(result_audio)}({round(len(result_audio)/self.sr, 2)})')
 
@@ -633,8 +633,8 @@ class DAwithPyroom(object):
             noise_audio_long = self.gen_long_noise(current_audio_info, 0.9, 1.0)
                                         # 0.7, 0.8, 
                                         
-            output_path = f"long_noise_X.wav"
-            sf.write(output_path, noise_audio_long, self.sr, subtype='FLOAT')
+            # output_path = f"long_noise_X.wav"
+            # sf.write(output_path, noise_audio_long, self.sr, subtype='FLOAT')
 
             # print(f'Length of noise: {len(noise_audio_long)}({round(len(noise_audio_long)/self.sr, 2)})')
 
@@ -653,8 +653,8 @@ class DAwithPyroom(object):
 
         long_noise_E3 = self.long_distance_noise(n=45, t = self.num_min)
 
-        output_path = f"long_noise_E3_X.wav"
-        sf.write(output_path, long_noise_E3, self.sr, subtype='FLOAT')
+        # output_path = f"long_noise_E3_X.wav"
+        # sf.write(output_path, long_noise_E3, self.sr, subtype='FLOAT')
 
         room.add_source(rand_coordinates_noise_E3,
                         signal = long_noise_E3)
@@ -709,7 +709,7 @@ class DAwithPyroom(object):
 
             self.x_data_DA.append(single_x_DA_trimmed)
 
-            if indx%100 == 0:
+            if indx%20 == 0:
 
                 current_time_100a = time.process_time()
                 time_100a = current_time_100a - prev_time
