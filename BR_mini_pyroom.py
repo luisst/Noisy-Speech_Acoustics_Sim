@@ -11,11 +11,14 @@ wav_path = Path.home().joinpath('Dropbox','DATASETS_AUDIO',
 # Load the speech audio produced by a Text-To-Speech System
 speech_audio, fs = librosa.load(wav_path, sr=16000)
 
+room_x = 15
+room_y = 13
+shoebox_vals = [room_x, room_y, 2.5]
 
-room = pra.ShoeBox([4,6], fs=fs, max_order=12, materials=pra.Material(0.3), ray_tracing=False, air_absorption=False)
+room = pra.ShoeBox(shoebox_vals, fs=fs, max_order=12, materials=pra.Material(0.3), ray_tracing=False, air_absorption=False)
 # set max_order to a low value for a quick (but less accurate) RIR
 # room = pra.Room.from_corners(corners, fs=fs, max_order=3, materials=pra.Material(0.2, 0.15), ray_tracing=True, air_absorption=True)
-room.extrude(2.)
+# room.extrude(2.)
 
 # Set the ray tracing parameters
 # room.set_ray_tracing(receiver_radius=0.5, n_rays=10000, energy_thres=1e-5)

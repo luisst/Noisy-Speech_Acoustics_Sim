@@ -564,7 +564,7 @@ class DAwithPyroom(object):
         # Create 3D room and add sources
         room = pra.ShoeBox(shoebox_vals,
                            fs=fs,
-                           absorption=abs_coeff,
+                           materials=pra.Material(abs_coeff),
                            max_order=12)
 
         # randomly select the coordinates for the main speaker:
@@ -659,10 +659,14 @@ class DAwithPyroom(object):
         room.add_source(rand_coordinates_noise_E3,
                         signal = long_noise_E3)
 
-        # Define microphone array
-        R = np.c_[mic_dict["mic_0"], mic_dict["mic_1"]]
-        room.add_microphone_array(pra.MicrophoneArray(R, room.fs))
+        # # Define microphone array
+        # R = np.c_[mic_dict["mic_0"], mic_dict["mic_1"]]
+        # room.add_microphone_array(pra.MicrophoneArray(R, room.fs))
 
+        R = np.array([[mic_dict["mic_0"][0], mic_dict["mic_1"][0]],
+                     [mic_dict["mic_0"][1], mic_dict["mic_1"][1]], 
+                     [mic_dict["mic_0"][2], mic_dict["mic_1"][2]]])
+        room.add_microphone(R)
 
         # plot_single_configuration(single_cfg, filename=f'minitest_{indx}.png')   
 
@@ -689,7 +693,7 @@ class DAwithPyroom(object):
         prev_time = time.process_time()
 
         # for indx in range(0, self.x_data.shape[0]):
-        for indx in range(0, 1500):
+        for indx in range(0, 2):
             single_signal = self.x_data[indx]
             single_signal_trimmed = np.trim_zeros(single_signal)
 
