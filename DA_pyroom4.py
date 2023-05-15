@@ -6,6 +6,7 @@ Created on Mon Apr  5 10:48:43 2021
 @author: luis
 """
 
+import scipy.signal as signal
 import random
 import numpy as np
 import pyroomacoustics as pra
@@ -36,7 +37,9 @@ class DAwithPyroom(object):
     input signal + 4 random crosstalk + background noise
     """
 
-    def __init__(self, input_path, noise_path1, noise_path2, noise_path3, output_csv_path, proc_log, noise_flag = False,
+    def __init__(self, input_path, noise_path1, noise_path2, noise_path3, 
+                 output_csv_path, output_folder,  
+                 proc_log, noise_flag = False,
                  min_gain = 0.9, max_gain = 1.00,
                  min_offset = -0.4, max_offset = 0.4, bk_num = 5):
         """
@@ -50,6 +53,7 @@ class DAwithPyroom(object):
         self.data_E3 = np.load(noise_path3, allow_pickle=True)
         self.output_csv_path = output_csv_path
         self.proc_log = proc_log
+        self.output_folder = output_folder
         self.noise_flag = noise_flag
 
         self.min_gain = min_gain
@@ -456,7 +460,7 @@ class DAwithPyroom(object):
         segment_limits = [(segments[i], segments[i+1]) for i in range(num_segments)]
         random.shuffle(segment_limits)
 
-        index_list = list(range(len(self.x_data) + 1))
+        index_list = list(range(len(self.x_data)))
         list_of_audios = []
 
         # Call the extend_audio function for each input audio file with its corresponding limit_lower and limit_upper values
@@ -597,7 +601,7 @@ class DAwithPyroom(object):
         # result_audio += 0.8 * harmonic_exciter
 
         room.add_source(main_speaker_coords,
-                        signal=result_audio)
+                        signal=result_audio*0.9)
 
         single_cfg = {'mic': [mic_dict['mic_0'][0], mic_dict['mic_0'][1]],
                     'main': [main_speaker_coords[0], main_speaker_coords[1]],
@@ -693,7 +697,7 @@ class DAwithPyroom(object):
         prev_time = time.process_time()
 
         # for indx in range(0, self.x_data.shape[0]):
-        for indx in range(0, 2):
+        for indx in range(0, 60):
             single_signal = self.x_data[indx]
             single_signal_trimmed = np.trim_zeros(single_signal)
 
@@ -711,7 +715,21 @@ class DAwithPyroom(object):
 
             single_x_DA_trimmed = self.eliminate_noise_start_ending(single_x_DA, 0.00001)
 
-            self.x_data_DA.append(single_x_DA_trimmed)
+            # Calculate the filter coefficients
+            nyquist_freq = 0.5 * self.sr
+            cutoff_freq = 60.0 / nyquist_freq
+            b, a = signal.butter(1, cutoff_freq, 'highpass', analog=False, output='ba')
+
+            # Apply the filter to the audio signal
+            filtered_audio = signal.filtfilt(b, a, single_x_DA_trimmed)
+
+            new_name_wav = f'DA_long-{indx}.wav'
+            output_path_wav = self.output_folder.joinpath(new_name_wav) 
+            sf.write(str(output_path_wav), filtered_audio, 16000, subtype='FLOAT')
+
+            # new_name_wav = f'DA_long-{indx}_PCM16.wav'
+            # output_path_wav = self.output_folder.joinpath(new_name_wav) 
+            # sf.write(str(output_path_wav), single_x_DA_trimmed, 16000, subtype='PCM_16')
 
             if indx%20 == 0:
 
@@ -723,4 +741,4 @@ class DAwithPyroom(object):
                 prev_time = current_time_100a
 
         print("These number of small audios:" + str(counter_small))
-        return self.x_data_DA
+        # return self.x_data_DA
