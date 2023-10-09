@@ -1,0 +1,11 @@
+conda create --name pyroomWin python=3.9 numpy matplotlib pandas
+pip install pyroomacoustics
+pip install soundfile
+pip install sounddevice
+pip install librosa
+
+### Install utils library
+cd ~/Dropbox/SpeechFall2022/SpeakerLID_GT_code/utls
+pip install -e .
+
+### Locate Noises npy and update location
