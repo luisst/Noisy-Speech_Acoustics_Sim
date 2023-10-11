@@ -153,6 +153,7 @@ shoebox_vals = [room_x, room_y, 2.5]
 abs_coeff = 0.6
 
 fs = 16000
+sr = fs
 
 mic_dict = {"mic_0": [mic_point_x, mic_point_y, 0.75],
             "mic_1": [mic_point_x + 0.1, mic_point_y, 0.75]}
