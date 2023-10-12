@@ -2,6 +2,8 @@ import random
 import numpy as np
 import inspect
 
+import scipy.signal as signal
+import csv
 import shutil
 import sys
 from cfg_pyroom_VAD import sr
@@ -132,13 +134,16 @@ def norm_others_float32(audio_float32, gain_value, outmin, outmax):
     return audio_gained
 
 
-def gain_variation(original_audio, init_reduce = 0.6, factor_min=2.0, factor_max=2.5, verbose=False):
-    # Reduce the gain to 30%
+def gain_variation(original_audio, init_reduce = 0.6, 
+                   factor_min=2.0, factor_max=2.5, 
+                   min_duration_ratio = 0.2, max_duration_ratio = 0.4, 
+                   verbose=False):
+    # Reduce the gain to allow later increases
     audio_data = init_reduce * original_audio
 
     # Define the minimum and maximum duration of the gain increase
-    min_duration = int(len(audio_data) * 0.2)
-    max_duration = int(len(audio_data) * 0.4)
+    min_duration = int(len(audio_data) * min_duration_ratio)
+    max_duration = int(len(audio_data) * max_duration_ratio)
 
     # Generate a random duration for the gain increase
     duration_1 = np.random.randint(min_duration, max_duration)
@@ -158,10 +163,10 @@ def gain_variation(original_audio, init_reduce = 0.6, factor_min=2.0, factor_max
     return audio_data
 
 
-def extend_audio(audio, limit_lower, limit_upper, idx, num_min = 3, offset_samples = 0, verbose = False):
+def extend_audio(audio, limit_lower, limit_upper, length_min = 3, offset_samples = 0, verbose = False):
 
     # Calculate how much silence we need to add to make the audio 8 minutes long
-    ext_length = sr * (num_min * 60) + offset_samples
+    ext_length = sr * (length_min * 60) + offset_samples
     extended_audio = np.zeros((int(ext_length),))
 
     # Calculate the range of indices where the original audio can be placed
@@ -179,6 +184,42 @@ def extend_audio(audio, limit_lower, limit_upper, idx, num_min = 3, offset_sampl
     final_audio = np.concatenate((extended_audio[:start_index], audio, extended_audio[end_index:]))
     
     return final_audio, ext_length, (start_index, end_index)
+
+
+def remove_dc_component(input_signal):
+    nyquist_freq = 0.5 * sr
+    cutoff_freq = 60.0 / nyquist_freq
+    b, a = signal.butter(1, cutoff_freq, 'highpass', analog=False, output='ba')
+    filtered_audio = signal.filtfilt(b, a, input_signal)
+    return filtered_audio
+
+
+def gen_random_gaussian(min_value, max_value):
+    mu = (min_value + max_value) / 2   # mean
+    sigma = (max_value - mu) / 2.5       # standard deviation
+
+    gain_value = 1.0
+    # Generate a list of 1000 random numbers between min_value and max_value
+    nums = []
+    for i in range(1000):
+        gain_value = random.gauss(mu, sigma)
+        while gain_value < min_value or gain_value > max_value:
+            gain_value = random.gauss(mu, sigma)
+    return gain_value
+
+
+def generate_csv_file(GT_log, output_csv_path, indx):
+    GT_log = sorted(GT_log, key = lambda x: x[1])
+
+    # specify filename for CSV file
+    filename = output_csv_path.joinpath(f'GT_{indx}.csv')
+    # open file for writing with tab delimiter
+    with open(filename, 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile, delimiter='\t')
+
+        # write each tuple to a row in the file
+        for audio_name, start, end in GT_log:
+            writer.writerow([audio_name, round(start/sr,2), round(end/sr,2)])
 
 
 def gen_output_paths(BASE_PATH, run_id):
