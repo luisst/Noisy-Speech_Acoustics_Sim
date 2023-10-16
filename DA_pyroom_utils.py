@@ -163,7 +163,22 @@ def gain_variation(original_audio, init_reduce = 0.6,
     return audio_data
 
 
-def extend_audio(audio, limit_lower, limit_upper, length_min = 3, offset_samples = 0, verbose = False):
+def extend_audio(audio, start_index, end_index, 
+                 total_ext_length, 
+                 verbose = False):
+
+    extended_audio = np.zeros((int(total_ext_length),))
+    
+    if verbose:
+        print(f'Exclusive portion: \nstart: {start_index} ({round(start_index/sr, 2)}) - end: {end_index} ({round(end_index/sr, 2)})\n')
+
+
+    # Place the original audio at the exclusive portion
+    final_audio = np.concatenate((extended_audio[:start_index], audio, extended_audio[end_index:]))
+    
+    return final_audio, (start_index, end_index)
+
+def extend_audio_bk(audio, limit_lower, limit_upper, length_min = 3, offset_samples = 0, verbose = False):
 
     # Calculate how much silence we need to add to make the audio 8 minutes long
     ext_length = sr * (length_min * 60) + offset_samples
@@ -176,14 +191,16 @@ def extend_audio(audio, limit_lower, limit_upper, length_min = 3, offset_samples
     # Calculate the start and end indices of the exclusive portion for this audio file
     start_index = int(segment_start + (segment_end - segment_start) * random.random())
     end_index = start_index + len(audio)
-    if verbose:
-        print(f'start: {start_index} ({round(start_index/sr, 2)}) - end: {end_index} ({round(end_index/sr, 2)})')
 
+    if start_index < 0:
+        print(f'Warning! BK|Negative start_index. Audio length: {len(audio)} vs {limit_upper - limit_lower}')
+    if verbose:
+        print(f'BK|start: {start_index} ({round(start_index/sr, 2)}) - end: {end_index} ({round(end_index/sr, 2)})')
 
     # Place the original audio at the exclusive portion
     final_audio = np.concatenate((extended_audio[:start_index], audio, extended_audio[end_index:]))
     
-    return final_audio, ext_length, (start_index, end_index)
+    return final_audio, (start_index, end_index)
 
 
 def remove_dc_component(input_signal):
