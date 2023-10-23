@@ -9,46 +9,44 @@ the conda environmet is pyroLate for Linux, pyroomWin for Windows
 """
 
 all_params = { # Set to 0 to have only bk_speakers
-                'sp_gain' :     (0, True), # Gain of active speaker 
-                'rnd_offset_secs' : (4, True), # max silence between speech segments 
+                'sp_gain' :     (1.1, True), # Gain of active speaker 
+                'rnd_offset_secs' : (5, False), # max silence between speech segments 
                 'bk_num' :      (7, False), # bk_speakers_number
-                'output_samples_num' : (50, False), # Number of long audios generated
+                'output_samples_num' : (3, False), # Number of long audios generated
                 'length_min' :     (3, False), # Length of output audios (min)
 
-                'sp_init_reduce' : (0.6, False), # Init reduction before inner gain_variation
+                'sp_init_reduce' : (0.7, True), # Init reduction before inner gain_variation
                 'sp_inner_gain_range':([1.2, 1.5], False), # Gain variation inside the sample
                 'sp_inner_dur_range' : ([0.2, 0.4], False), # Min & max percentage of gain inside sample
 
                 # Set to 0 to remove background speakers
-                'bk_gain' :     (0.9, True), # Gain of all bk speakers together 
+                'bk_gain' :     (0.8, True), # Gain of all bk speakers together 
                 'bk_num_segments' : (50, False), # Number of bk samples in the final output
-                'bk_gain_range' :     ([0.4, 0.8], False), # Gain range bk speakers 
+                'bk_gain_range' :     ([0.4, 0.9], True), # Gain range bk speakers 
                 'bk_offset_range' :   ([-0.4, 0.4], False), # offset perctange bk speakers
-                'bk_init_reduce' : (0.4, False), # Init reduction before inner gain_variation
+                'bk_init_reduce' : (0.5, True), # Init reduction before inner gain_variation
                 'bk_inner_gain_range' : ([2,4, 2,5], False), # Gain variation inside bk sample
                 'bk_inner_dur_range' : ([0.2, 0.4], False), # Duration percentage for gain inside bk sample
                 'bk_ext_offset_range' : ([1, 4], False), # Offset of extend bk audio (secs)
 
                 # Set to 0 to remove noises
-                'ns_gain' :           (1.0, False),
-                'ns_gain_range' :     ([0.9, 1.0], False),
+                'ns_gain' :           (0.9, False),
+                'ns_gain_range' :     ([0.8, 1.0], False),
                 'ns_close_dist' :      (0.4, False), # Distance ns source to mic
                 'ns_number_samples':   (45, False), # Number of long distance noise samples
 
                 # Store in log folder audios from inner stages
-                'debug_store_audio':   (False, False), 
+                'debug_store_audio':   (True, True), 
+                'sp_reverb':          ([0.07, 1.0], True), # Reverb intensity (max=1), makeup gain 
+                'bk_reverb':          ([0.1, 1.0], False), # Reverb intensity (max=1), makeup gain 
                 }
 run_name = 'initial_test'
 
-INPUT_NPY_PATH = Path.home().joinpath('Dropbox','DATASETS_AUDIO', 
+INPUT_WAV_PATH = Path.home().joinpath('Dropbox','DATASETS_AUDIO', 
                                       'AlterAI_morph_PhuongYeti_English',
-                                      'morph_PhuongYeti_Initial.npy')
+                                      'WAV_audios_phrases')
 
-INPUT_NPY_PATH_NAMES = Path.home().joinpath('Dropbox','DATASETS_AUDIO', 
-                                      'AlterAI_morph_PhuongYeti_English',
-                                      'morph_PhuongYeti_Initial_names.npy')
-
-BASE_PATH = INPUT_NPY_PATH.parent 
+BASE_PATH = INPUT_WAV_PATH.parent 
 
 NOISE_PATH_DICT = {'noise_npy_folder': Path.home().joinpath('Dropbox','DATASETS_AUDIO','VAD_TTS2'),
                    'noise_e1_soft' : 'noise_E1.npy',
@@ -63,7 +61,7 @@ t_start = time.time()
 t_pc_start = time.process_time()
 
 # DA Pyroom Object Instance
-my_sim = DAwithPyroom(INPUT_NPY_PATH, INPUT_NPY_PATH_NAMES, 
+my_sim = DAwithPyroom(INPUT_WAV_PATH, 
                       NOISE_PATH_DICT, OUTPUT_PATH_DICT,
                       all_params)
 

@@ -2,10 +2,7 @@ import numpy as np
 import soundfile as sf
 import os
 from pathlib import Path
-from pedalboard import (
-    Pedalboard,
-    Reverb,
-)
+from pedalboard import Pedalboard, Reverb
 
 name_dataset = 'morph_PhuongYeti_Initial' 
 input_wav_directory = Path.home().joinpath('Dropbox','DATASETS_AUDIO', 

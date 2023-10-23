@@ -1,9 +1,5 @@
-import sys
-import os
-import shutil
 import random
 import numpy as np
-import math
 import pdb
 
 def find_center(lower_left_point, upper_right_point):
@@ -106,15 +102,6 @@ def gen_rand_table_coords(lower_left_point, upper_right_point,
             return [rand_x, rand_y, rand_z], [(point_A, point_D), (point_B, point_C)]
 
 
-
-# ### Define all room dimensions
-# room_x = 10
-# room_y = 11
-
-# ### Define the inner square
-# lower_left_point = (3., 2.)
-# upper_right_point = (6.,5.)
-
 ### Define all room dimensions
 room_x = 15
 room_y = 13
@@ -131,22 +118,6 @@ lower_left_table, upper_right_table = place_table_middle(lower_left_point,
 
 ## Place microphone in the center of inner sqaure
 mic_point_x, mic_point_y = find_center(lower_left_table, upper_right_table)
-
-for i in range(0,20):
-    print(f'\n\n')
-#     gen_rand_coordinates(room_x, room_y, lower_left_point, upper_right_point, True)
-
-# print(f'\n\n\nNow the speaker:')
-    gen_rand_table_coords(lower_left_point, upper_right_point, 
-                            lower_left_table, upper_right_table, 
-                            table_margin = 0.2,
-                            verbose = True)
-
-# corners = np.array([[2.,0.], [2.,3.], [0.,3.],
-# [0.,8.],[14.,8.],[14.,3.],[12.,3.],[12.,0.]]).T # [x,y]
-# room = pra.Room.from_corners(corners)
-# room.extrude(2.5)
-
 
 shoebox_vals = [room_x, room_y, 2.5]
 

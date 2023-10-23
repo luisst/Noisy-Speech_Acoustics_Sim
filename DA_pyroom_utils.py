@@ -8,6 +8,8 @@ import shutil
 import sys
 from cfg_pyroom_VAD import sr
 from utilities_functions import check_folder_for_process
+from pedalboard import Pedalboard, Reverb
+import soundfile as sf
 
 def log_message(msg, log_file, mode, both=True):
     '''Function that prints and/or adds to log'''
@@ -211,18 +213,14 @@ def remove_dc_component(input_signal):
     return filtered_audio
 
 
-def gen_random_gaussian(min_value, max_value):
-    mu = (min_value + max_value) / 2   # mean
-    sigma = (max_value - mu) / 2.5       # standard deviation
-
-    gain_value = 1.0
-    # Generate a list of 1000 random numbers between min_value and max_value
-    nums = []
-    for i in range(1000):
-        gain_value = random.gauss(mu, sigma)
-        while gain_value < min_value or gain_value > max_value:
-            gain_value = random.gauss(mu, sigma)
-    return gain_value
+def gen_random_gaussian(min_val, max_val, max_attempts=10000):
+    mean = (min_val + max_val) / 2
+    std_dev = (max_val - min_val) / 4
+    for _ in range(max_attempts):
+        value = np.random.normal(mean, std_dev)
+        if min_val <= value <= max_val:
+            return value
+    raise ValueError("Failed to generate a valid value within the specified range after 10,000 attempts")
 
 
 def generate_csv_file(GT_log, output_csv_path, indx):
@@ -241,9 +239,16 @@ def generate_csv_file(GT_log, output_csv_path, indx):
 
 def gen_output_paths(BASE_PATH, run_id):
 
-    OUTPUT_WAV_PATH = BASE_PATH.joinpath(run_id)
-    OUTPUT_LOG_PATH = OUTPUT_WAV_PATH.joinpath(f'{run_id}_log.txt')
-    OUTPUT_CSV_PATH = OUTPUT_WAV_PATH.joinpath('GT_CSV')
+    OUTPUT_FOLDER_PATH = BASE_PATH.joinpath(run_id)
+    OUTPUT_WAV_PATH = OUTPUT_FOLDER_PATH.joinpath('WAV_OUTPUT')
+    OUTPUT_LOG_PATH = OUTPUT_FOLDER_PATH.joinpath(f'{run_id}_log.txt')
+    OUTPUT_CSV_PATH = OUTPUT_FOLDER_PATH.joinpath('GT_CSV')
+
+    # if not OUTPUT_WAV_PATH.exists():
+    #     OUTPUT_WAV_PATH.mkdir()
+    # else:
+    #     shutil.rmtree(OUTPUT_WAV_PATH)
+    #     OUTPUT_WAV_PATH.mkdir()   
 
     if not(check_folder_for_process(OUTPUT_WAV_PATH)):
         sys.exit('goodbye')
@@ -253,7 +258,8 @@ def gen_output_paths(BASE_PATH, run_id):
     else:
         shutil.rmtree(OUTPUT_CSV_PATH)
         OUTPUT_CSV_PATH.mkdir()
-    
+
+
     OUTPUT_PATH_DICT = {'output_wav_path' : OUTPUT_WAV_PATH,
                         'output_log_path' : OUTPUT_LOG_PATH,
                         'output_csv_path' : OUTPUT_CSV_PATH}
@@ -296,3 +302,49 @@ def convert_param_dict(all_dict):
             print(f'ERROR: dictionary does not have True/False values')
     
     return result
+
+
+def read_audio_name(list_audio_paths, indx):
+    current_audio_path = list_audio_paths[indx]
+    raw_data, samplerate = sf.read(current_audio_path)
+    if samplerate != sr:
+        sys.exit(f'ERROR! Audio is not 16K: {current_audio_path.name}')
+
+    raw_audio = np.asarray(raw_data)
+    current_audio_name = current_audio_path.stem 
+
+    return raw_audio, current_audio_name
+
+def apply_reverb(input_wav, reverb_vals=(0.1, 1.6)):
+
+    if reverb_vals[0] != 0:
+        pedalboard = Pedalboard([
+                Reverb(
+                    room_size=reverb_vals[0],
+                )
+            ])
+
+        single_noise = np.asarray(input_wav)
+
+        single_noise = single_noise * reverb_vals[1] 
+
+        # Apply the effect to the audio
+        return pedalboard(single_noise, sample_rate=sr)
+    else:
+        return input_wav
+
+def amplify_audio_to_0db(audio):
+    # Find the maximum absolute value in the audio array
+    max_amplitude = np.max(np.abs(audio))
+
+    # Check if the maximum amplitude is zero to avoid division by zero
+    if max_amplitude == 0:
+        return audio
+
+    # Calculate the scaling factor to reach 0 dB
+    scaling_factor = 1.0 / max_amplitude
+
+    # Amplify the audio by scaling all values
+    amplified_audio = audio * scaling_factor
+
+    return amplified_audio
