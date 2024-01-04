@@ -24,7 +24,7 @@ from DA_pyroom_utils import norm_others_float32, log_message, gain_variation, \
     gen_random_on_range, norm_noise_f32, gen_random_on_range, gen_random_on_range, \
     sum_arrays, eliminate_noise_start_ending, extend_audio, convert_param_dict, \
     generate_csv_file, remove_dc_component, gen_random_gaussian, extend_audio_bk, \
-    read_audio_name, apply_reverb, amplify_audio_to_0db
+    read_audio_name, apply_reverb, amplify_audio_to_0db, name_mapping_TTS2
 
 
 class DAwithPyroom(object):
@@ -39,6 +39,7 @@ class DAwithPyroom(object):
         """
         Initialize all the params from the dictionaries. Examples provided in the Main_long.py file
         """
+        self.audio_name = 'DA_long'
         noise_path1 = noise_dict['noise_npy_folder'].joinpath(noise_dict['noise_e1_soft'])
         noise_path2 = noise_dict['noise_npy_folder'].joinpath(noise_dict['noise_e2_loud'])
         noise_path3 = noise_dict['noise_npy_folder'].joinpath(noise_dict['noise_e3_distance'])
@@ -225,7 +226,7 @@ class DAwithPyroom(object):
         indx_others = random.randint(0, len(self.list_audio_paths)-1)
         others_audio, _ = read_audio_name(self.list_audio_paths, indx_others)
         others_audio = others_audio.astype('float32')
-        others_audio = apply_reverb(others_audio, reverb_vals=self.bk_reverb)
+        # others_audio = apply_reverb(others_audio, reverb_vals=self.bk_reverb)
         others_audio = np.trim_zeros(others_audio)
 
         offset_value = gen_random_on_range(self.bk_min_offset, self.bk_max_offset)
@@ -370,7 +371,7 @@ class DAwithPyroom(object):
 
             raw_audio, current_audio_name = read_audio_name(self.list_audio_paths, 
                                                             random_idx)
-            raw_audio = apply_reverb(raw_audio, reverb_vals=self.sp_reverb)
+            # raw_audio = apply_reverb(raw_audio, reverb_vals=self.sp_reverb)
 
             total_length_audio = len(raw_audio)
 
@@ -483,7 +484,9 @@ class DAwithPyroom(object):
                                                             length_min = self.length_min, 
                                                             verbose = False)
 
-        generate_csv_file(GT_log, self.output_csv_path, indx) 
+        generate_csv_file(GT_log, self.output_csv_path,
+                          indx, name_mapping_TTS2,
+                          self.audio_name, only_speaker=True) 
 
         length_current_audio = len(result_audio)
         outmin_current = result_audio.min()
@@ -524,7 +527,7 @@ class DAwithPyroom(object):
 
                 if self.store_sample:
                     if (indx == 0) and (i == 1):
-                        output_path = self.proc_log.parent.joinpath("others_long_audio_sample.wav")
+                        output_path = self.proc_log.parent.joinpath(f"others_long_audio_sample_{i}.wav")
                         sf.write(output_path, result_audio*self.bk_gain, self.sr, subtype='FLOAT')
                         print(f'{indx}-Length of {i}th bk_audio: {len(result_audio)}({round(len(result_audio)/self.sr, 2)})')
 
@@ -597,7 +600,7 @@ class DAwithPyroom(object):
             filtered_audio = remove_dc_component(single_x_DA_trimmed)
             amp_audio = amplify_audio_to_0db(filtered_audio)
 
-            new_name_wav = f'DA_long_{indx}.wav'
+            new_name_wav = f'{self.audio_name}_{indx}.wav'
             output_path_wav = self.output_folder.joinpath(new_name_wav) 
             sf.write(str(output_path_wav), amp_audio, self.sr, subtype='FLOAT')
 

@@ -11,6 +11,18 @@ from utilities_functions import check_folder_for_process
 from pedalboard import Pedalboard, Reverb
 import soundfile as sf
 
+
+# Define the dictionary mapping substrings to values
+name_mapping_TTS2 = {
+    'James': 'S0',
+    'Morgan': 'S1',
+    'Jennifer': 'S2',
+    'Sofia': 'S3',
+    'Edward': 'S4',
+    'Keira': 'S5'
+}
+
+
 def log_message(msg, log_file, mode, both=True):
     '''Function that prints and/or adds to log'''
     #Always log file
@@ -223,18 +235,34 @@ def gen_random_gaussian(min_val, max_val, max_attempts=10000):
     raise ValueError("Failed to generate a valid value within the specified range after 10,000 attempts")
 
 
-def generate_csv_file(GT_log, output_csv_path, indx):
+def generate_csv_file(GT_log, output_csv_path, indx,
+                      names_mapping_dict,
+                      single_name = 'DA_long',
+                      only_speaker = True):
     GT_log = sorted(GT_log, key = lambda x: x[1])
+    speaker_name = ''
 
     # specify filename for CSV file
-    filename = output_csv_path.joinpath(f'GT_{indx}.csv')
+    filename = output_csv_path.joinpath(f'{single_name}_{indx}.csv')
     # open file for writing with tab delimiter
     with open(filename, 'w', newline='') as csvfile:
         writer = csv.writer(csvfile, delimiter='\t')
 
         # write each tuple to a row in the file
         for audio_name, start, end in GT_log:
-            writer.writerow([audio_name, round(start/sr,2), round(end/sr,2)])
+            first_column_parts = audio_name.split('_')
+            if len(first_column_parts) >= 2:
+                substring = first_column_parts[-2]
+
+                # Lookup the substring in the dictionary and replace it with the corresponding value
+                if substring in names_mapping_dict:
+                    speaker_name = names_mapping_dict[substring]
+                else:
+                    sys.exit(f"Substring '{substring}' not found in the dictionary.")
+            else:
+                sys.exit(f"Could not find the name of speaker in: {audio_name}")
+
+            writer.writerow([speaker_name, 'Eng', round(start/sr,2), round(end/sr,2)])
 
 
 def gen_output_paths(BASE_PATH, run_id):
@@ -314,6 +342,22 @@ def read_audio_name(list_audio_paths, indx):
     current_audio_name = current_audio_path.stem 
 
     return raw_audio, current_audio_name
+
+
+def read_audio_name_from_dict(dict_speakers_paths, selected_speaker):
+
+    list_current_speaker_paths = dict_speakers_paths[selected_speaker]
+
+    indx_others = random.randint(0, len(list_current_speaker_paths)-1)
+    current_audio_path = list_current_speaker_paths[indx_others]
+    raw_data, samplerate = sf.read(current_audio_path)
+    if samplerate != sr:
+        sys.exit(f'ERROR! Audio is not 16K: {current_audio_path.name}')
+
+    raw_audio = np.asarray(raw_data)
+    current_audio_name = current_audio_path.stem 
+
+    return raw_audio, indx_others, current_audio_name
 
 def apply_reverb(input_wav, reverb_vals=(0.1, 1.6)):
 
