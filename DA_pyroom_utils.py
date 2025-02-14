@@ -10,6 +10,9 @@ from cfg_pyroom_VAD import sr
 from utilities_functions import check_folder_for_process
 from pedalboard import Pedalboard, Reverb
 import soundfile as sf
+from pydub import AudioSegment
+from pydub.effects import compress_dynamic_range
+import pydub
 
 
 # Define the dictionary mapping substrings to values
@@ -21,6 +24,36 @@ name_mapping_TTS2 = {
     'Edward': 'S4',
     'Keira': 'S5'
 }
+
+
+def create_random_sequence(length, flip_probability=0.3):
+    """
+    Create a random sequence of 0s and 1s where the tendency is to have 
+    consecutive numbers the same.
+
+    Parameters:
+    length (int): Length of the sequence.
+    flip_probability (float): Probability of changing the current number 
+                              from the previous one. Default is 0.2.
+    
+    Returns:
+    list: Random sequence of 0s and 1s.
+    """
+    if length <= 0:
+        return []
+
+    # Initialize the sequence with all zeros
+    sequence = [0] * length
+
+    for i in range(1, length):
+        if random.random() < flip_probability:
+            # Flip the value with a certain probability
+            sequence[i] = 1 - sequence[i-1]
+        else:
+            # Keep the same value as the previous element
+            sequence[i] = sequence[i-1]
+
+    return sequence
 
 
 def log_message(msg, log_file, mode, both=True):
@@ -71,41 +104,6 @@ def eliminate_noise_start_ending(signal, th):
     signal_trimmed = signal_trimmed_end[real_length_start:]
     
     return signal_trimmed
-
-def norm_noise_f32(noise_current_audio, gain_value = 1):
-    """
-    Apply gain independent of the max/min values of the input audio
-    """
-
-    if noise_current_audio.dtype.kind != 'f':
-        raise TypeError("'dtype' must be a floating point type")
-
-    vmin = noise_current_audio.min()
-    vmax = noise_current_audio.max()
-
-    audio_gained = noise_current_audio*gain_value
-
-    vmin_gained = audio_gained.min()
-    vmax_gained = audio_gained.max()
-
-    nm_sum = np.sum(noise_current_audio)
-    if np.isnan(nm_sum):
-        try_inspect = inspect.stack()
-        print(try_inspect[2].function)
-        msg = f">> NAN in audio_float32\nVin: {vmin} | {vmax} --- Vout: {vmin_gained} | {vmax_gained}\
-            function {try_inspect[2].function} | code_context {try_inspect[2].code_context} \
-                || function {try_inspect[1].function} | context{try_inspect[1].code_context}\n"
-        # log_message(msg, proc_log, 'a', True)
-    
-    nm_sum = np.sum(audio_gained)
-    if np.isnan(nm_sum):
-        try_inspect = inspect.stack()
-        msg = f">> NAN in audio_gained\nVin: {vmin} | {vmax} --- Vout: {vmin_gained} | {vmax_gained}\
-            function {try_inspect[2].function} | code_context {try_inspect[2].code_context} \
-                || function {try_inspect[1].function} | context{try_inspect[1].code_context}\n"
-        # log_message(msg, proc_log, 'a', True)
-
-    return audio_gained
 
 
 def norm_others_float32(audio_float32, gain_value, outmin, outmax):
@@ -392,3 +390,84 @@ def amplify_audio_to_0db(audio):
     amplified_audio = audio * scaling_factor
 
     return amplified_audio
+
+
+def amplify_audio_to_3_2db(audio):
+    # Find the maximum absolute value in the audio array
+    max_amplitude = np.max(np.abs(audio))
+
+    # Check if the maximum amplitude is zero to avoid division by zero
+    if max_amplitude == 0:
+        return audio
+
+    # Calculate the scaling factor to reach 3.2 dB
+    scaling_factor = 10 ** (3.2 / 20) / max_amplitude
+
+    # Amplify the audio by scaling all values
+    amplified_audio = audio * scaling_factor
+
+    return amplified_audio
+
+def normalize_to_minus1db(input_audio):
+    # Convert -1 dB to a linear scale factor
+    target_dB = -1
+    scale_factor = 10 ** (target_dB / 20)
+
+    # Calculate the peak normalization factor and adjust it to -1 dB
+    peak_normalization_factor = scale_factor / np.max(np.abs(input_audio))
+    normalized_audio = input_audio * peak_normalization_factor
+    return normalized_audio
+
+
+def from_numpy_array(nparr, framerate):
+    """
+    Returns an AudioSegment created from the given numpy array.
+
+    The numpy array must have shape = (num_samples, num_channels).
+
+    :param nparr: The numpy array to create an AudioSegment from.
+    :param framerate: The sample rate (Hz) of the segment to generate.
+    :returns: An AudioSegment created from the given array.
+    """
+    # Check args
+    if nparr.dtype.itemsize not in (1, 2, 4):
+        raise ValueError("Numpy Array must contain 8, 16, or 32 bit values.")
+
+    # Determine nchannels
+    if len(nparr.shape) == 1:
+        nchannels = 1
+    elif len(nparr.shape) == 2:
+        nchannels = nparr.shape[1]
+    else:
+        raise ValueError("Numpy Array must be one or two dimensional. Shape must be: (num_samples, num_channels), but is {}.".format(nparr.shape))
+
+    # Fix shape if single dimensional
+    nparr = np.reshape(nparr, (-1, nchannels))
+
+    # Create an array of mono audio segments
+    m = nparr[:, 0]
+    dubseg = pydub.AudioSegment(m.tobytes(), frame_rate=framerate, sample_width=nparr.dtype.itemsize, channels=1)
+
+    return dubseg
+
+
+def compress_numpy_audio(input_audio):
+    
+    audio_int32 = np.int32(input_audio * 2147483647)
+
+    audio_segment = from_numpy_array(audio_int32, sr)
+
+    # Apply a dynamic range compression
+    compressed_segment = compress_dynamic_range(audio_segment,
+                                                threshold=-20.0,
+                                                ratio=10.0,
+                                                attack=200.0,
+                                                release=1000.0)
+
+    compressed_numpy_int32 = compressed_segment.get_array_of_samples()
+    compressed_numpy_int32 = np.array(compressed_numpy_int32)
+
+    # Normalize and convert to float32 format
+    compressed_numpy_float32 = (compressed_numpy_int32 / 2147483647).astype(np.float32)
+
+    return compressed_numpy_float32

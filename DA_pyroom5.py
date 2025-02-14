@@ -21,10 +21,11 @@ from cfg_pyroom_VAD import cfg_info, gen_rand_coordinates, \
 from plot_configuration_room import plot_single_configuration
 
 from DA_pyroom_utils import norm_others_float32, log_message, gain_variation, \
-    gen_random_on_range, norm_noise_f32, gen_random_on_range, gen_random_on_range, \
+    gen_random_on_range, gen_random_on_range, gen_random_on_range, \
     sum_arrays, eliminate_noise_start_ending, extend_audio, convert_param_dict, \
     generate_csv_file, remove_dc_component, gen_random_gaussian, extend_audio_bk, \
-    read_audio_name, apply_reverb, amplify_audio_to_0db, name_mapping_TTS2
+    read_audio_name, amplify_audio_to_3_2db, apply_reverb, amplify_audio_to_0db, \
+    name_mapping_TTS2, create_random_sequence, compress_numpy_audio
 
 
 class DAwithPyroom(object):
@@ -86,6 +87,7 @@ class DAwithPyroom(object):
 
         self.sp_gain = dict_params['sp_gain']
         self.ns_gain = dict_params['ns_gain']
+        self.ns_gain_away = dict_params['ns_gain_away']
         self.bk_gain = dict_params['bk_gain']
 
         self.bk_num_segments = dict_params['bk_num_segments'] 
@@ -191,34 +193,6 @@ class DAwithPyroom(object):
         return signal_result
 
 
-    def noise_mod(self, noise, gain_value, length_current_audio):
-        """
-        Modifies the signal with a gain_value (percentage) and
-        offset_value(percentage)
-        """
-
-        # Calculate the offset factors at the start
-        noise_length = noise.shape[0]
-        noise_current_audio = np.zeros((length_current_audio), dtype='float64')
-
-        # Accomodate noise audios within the signal audio length
-        if noise_length > length_current_audio:
-            noise_current_audio = noise[0:length_current_audio]
-        else:
-            noise_current_audio[0:noise_length] = noise
-
-        # Apply gain value and convert to required output format
-        signal_offset_norm  = norm_noise_f32(noise_current_audio,
-                                          gain_value)
-
-        sum_noise = np.sum(signal_offset_norm)
-        if np.isnan(sum_noise):
-            msg = f">> NaN found in Noise\n"
-            log_message(msg, self.proc_log, 'a', True)
-
-        return signal_offset_norm
-
-
     def prepare_bk_audio(self, current_audio_info, no_offset = False, return_indx = False):
 
         length_current_audio, outmin_current, outmax_current = current_audio_info 
@@ -244,37 +218,6 @@ class DAwithPyroom(object):
             return audio_bk_ready
 
 
-    def prepare_noise_audio(self, current_audio_info, mic_dict, 
-                            noise_gain_low, noise_gain_high,
-                            dist_e1, dist_e2, verbose = False):
-
-        length_current_audio, outmin_current, outmax_current = current_audio_info 
-
-        if random.choice([True, False]):
-            indx_others = random.randint(0, len(self.noiseE1_data)-1)
-            # print(f'Random E1 int: {indx_others}')
-            others_audio = self.noiseE1_data[indx_others].astype('float32')
-
-            noise_x, noise_y, noise_z = mic_dict["mic_0"]
-            noise_coords = [noise_x + dist_e1, noise_y + dist_e1, noise_z]
-        else:
-            indx_others = random.randint(0, len(self.noiseE2_data)-1)
-            others_audio = self.noiseE2_data[indx_others].astype('float32')
-
-            noise_x, noise_y, noise_z = mic_dict["mic_0"]
-            noise_coords = [noise_x + dist_e2, noise_y + dist_e2, noise_z]
-
-        others_audio = np.trim_zeros(others_audio)
-        gain_value = gen_random_on_range(noise_gain_low, noise_gain_high)
-        if verbose:
-            print(f'Noise gain: {gain_value}')
-
-        audio_bk_ready = self.noise_mod(others_audio, gain_value,
-                                       length_current_audio)
-
-        return noise_coords, audio_bk_ready
-
-
     def gen_long_noise(self, current_audio_info, 
                         noise_gain_low, noise_gain_high,
                         verbose = False):
@@ -295,8 +238,7 @@ class DAwithPyroom(object):
             others_audio = np.trim_zeros(others_audio)
             gain_value = gen_random_on_range(noise_gain_low, noise_gain_high)
 
-            noise_ready  = norm_noise_f32(others_audio,
-                                        gain_value)
+            noise_ready  = others_audio * gain_value
 
             selected_arrays.append(noise_ready)
             total_elements += np.size(noise_ready)
@@ -344,6 +286,8 @@ class DAwithPyroom(object):
 
             if verbose:
                 print(f'Current segment extended {idx}: {len(ext_audio_raw)}')
+
+            ext_audio = remove_dc_component(ext_audio)
             list_of_audios.append(ext_audio)
 
         result_audio = sum_arrays(list_of_audios)
@@ -379,7 +323,7 @@ class DAwithPyroom(object):
             # rnd_offset = int(max_offset*self.sr*random.random())
 
             # Gaussian distribution std_dev = 1.5 
-            rnd_offset = int(gen_random_gaussian(1, max_offset)*self.sr)
+            rnd_offset = int(gen_random_gaussian(0.2, max_offset)*self.sr)
 
             start_index = seg_idx + rnd_offset 
             end_index = start_index + total_length_audio
@@ -423,10 +367,26 @@ class DAwithPyroom(object):
                 print(f'Warning, main audio length is {len(ext_audio)}, larger than {len(ext_audio)}')
                 ext_audio = ext_audio[0:length_min*60*self.sr]
 
+            ext_audio = remove_dc_component(ext_audio)
             list_of_audios.append(ext_audio)
 
-        result_audio = sum_arrays(list_of_audios)
-        return result_audio, GT_log
+        # Select which main speakers to add into the result audio
+        number_audios = len(list_of_audios)
+        result_audio = np.zeros_like(list_of_audios[0])
+        bool_sequence = create_random_sequence(number_audios)
+
+        print(bool_sequence)
+
+
+        GT_log_filtered = []
+        for i in range(0, number_audios):
+            if bool_sequence[i] == 0:
+                result_audio += list_of_audios[i]
+                GT_log_filtered.append(GT_log[i])
+            # else:
+            #     print(f'Audio {i} skipped')
+
+        return result_audio, GT_log_filtered
 
 
     def long_distance_noise(self, number_samples=45, length_min=3, verbose = False):
@@ -519,7 +479,7 @@ class DAwithPyroom(object):
                                                                 num_segments = self.bk_num_segments,
                                                                 length_min = self.length_min,
                                                                 verbose = False)
-
+                                                            
                 # Randomly select the coordinates based on position
                 rand_coordinates_other = gen_rand_coordinates(shoebox_vals[0], shoebox_vals[1],
                                                             lower_left_point,
@@ -562,11 +522,11 @@ class DAwithPyroom(object):
                                                     length_min = self.length_min)
             if self.store_sample and (indx == 0):
                 output_path = self.proc_log.parent.joinpath("long_noise_E3_X.wav")
-                sf.write(output_path, long_noise_E3*self.ns_gain, self.sr, subtype='FLOAT')
+                sf.write(output_path, long_noise_E3*self.ns_gain_away, self.sr, subtype='FLOAT')
                 print(f'{indx}-Length of distance noise: {len(long_noise_E3)}({round(len(long_noise_E3)/self.sr, 2)})')
 
             room.add_source(rand_coordinates_noise_E3,
-                            signal = long_noise_E3*self.ns_gain)
+                            signal = long_noise_E3*self.ns_gain_away)
 
         R = np.array([[mic_dict["mic_0"][0], mic_dict["mic_1"][0]],
                      [mic_dict["mic_0"][1], mic_dict["mic_1"][1]], 
@@ -597,10 +557,16 @@ class DAwithPyroom(object):
             single_x_DA_trimmed = eliminate_noise_start_ending(single_x_DA, 0.00001)
 
             # Apply a high-pass filter to remove the DC component 
-            filtered_audio = remove_dc_component(single_x_DA_trimmed)
-            amp_audio = amplify_audio_to_0db(filtered_audio)
+            
+            normalized_audio = amplify_audio_to_0db(single_x_DA_trimmed)
 
-            new_name_wav = f'{self.audio_name}_{indx}.wav'
+            normalized_audio = remove_dc_component(normalized_audio)
+
+
+            # Apply 3.2 DB of gain to the audio
+            amp_audio = amplify_audio_to_3_2db(normalized_audio)
+
+            new_name_wav = f'preComp{self.audio_name}_{indx}.wav'
             output_path_wav = self.output_folder.joinpath(new_name_wav) 
             sf.write(str(output_path_wav), amp_audio, self.sr, subtype='FLOAT')
 
