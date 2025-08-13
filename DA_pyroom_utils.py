@@ -1,19 +1,19 @@
 import random
 import numpy as np
-import inspect
 
 import scipy.signal as signal
 import csv
 import shutil
 import sys
-from cfg_pyroom_VAD import sr
 from utilities_functions import check_folder_for_process
-from pedalboard import Pedalboard, Reverb
 import soundfile as sf
-from pydub import AudioSegment
-from pydub.effects import compress_dynamic_range
-import pydub
+import os
 
+# from pydub import AudioSegment
+# from pydub.effects import compress_dynamic_range
+# import pydub
+
+sr = 16000  # Sample rate for audio processing
 
 # Define the dictionary mapping substrings to values
 name_mapping_TTS2 = {
@@ -24,6 +24,44 @@ name_mapping_TTS2 = {
     'Edward': 'S4',
     'Keira': 'S5'
 }
+
+
+def create_random_sequence2(length=100):
+    """
+    Generate a list of booleans representing speech (True) and silence (False)
+    in an educational conversation setting.
+    
+    :param length: Length of the list to generate
+    :return: List of booleans with a structured pattern
+    """
+    pattern = []
+    i = 0
+    
+    while i < length:
+        choice = random.choices(
+            ['speech_segment', 'alternating', 'silence_period'], 
+            weights=[0.4, 0.3, 0.3]
+        )[0]
+        
+        if choice == 'speech_segment':
+            segment_length = random.randint(2, 5)
+            pattern.extend([0] * segment_length)
+            i += segment_length
+        
+        elif choice == 'alternating':
+            segment_length = random.randint(4, 10)
+            for _ in range(segment_length):
+                pattern.append(random.choice([0, 1]))
+            i += segment_length
+        
+        elif choice == 'silence_period':
+            silence_length = random.choices([
+                2, 3, 6, 10  # Longer silences are rarer
+            ], weights=[0.5, 0.3, 0.15, 0.05])[0]
+            pattern.extend([1] * silence_length)
+            i += silence_length
+    
+    return pattern[:length]  # Trim in case we exceed length
 
 
 def create_random_sequence(length, flip_probability=0.3):
@@ -59,6 +97,11 @@ def create_random_sequence(length, flip_probability=0.3):
 def log_message(msg, log_file, mode, both=True):
     '''Function that prints and/or adds to log'''
     #Always log file
+    # Ensure the directory exists
+    log_dir = os.path.dirname(log_file)
+    if not os.path.exists(log_dir):
+        os.makedirs(log_dir)
+        
     with open(log_file, mode) as f:
         f.write(msg)
 
@@ -106,7 +149,7 @@ def eliminate_noise_start_ending(signal, th):
     return signal_trimmed
 
 
-def norm_others_float32(audio_float32, gain_value, outmin, outmax):
+def norm_others_float32(audio_float32, gain_value):
     """
     Normalize float32 audio with the gain value provided
     """
@@ -116,32 +159,27 @@ def norm_others_float32(audio_float32, gain_value, outmin, outmax):
     vmin = audio_float32.min()
     vmax = audio_float32.max()
 
-    audio_gained = (outmax - outmin)*(audio_float32 - vmin)/(vmax - vmin) \
-        + outmin
+    # Normalize the audio to the range [-1, 1]
+    audio_float32 = ((audio_float32 - vmin) / (vmax - vmin)) * 2 - 1
 
-    audio_gained = audio_gained*gain_value
+    audio_gained = audio_float32*gain_value
 
-    vmin_gained = audio_gained.min()
-    vmax_gained = audio_gained.max()
-
-    nm_sum = np.sum(audio_float32)
-    if np.isnan(nm_sum):
-        try_inspect = inspect.stack()
-        print(try_inspect[2].function)
-        msg = f">> NAN in audio_float32\nVin: {vmin} | {vmax} --- Vout: {vmin_gained} | {vmax_gained}\
-            function {try_inspect[2].function} | code_context {try_inspect[2].code_context} \
-                || function {try_inspect[1].function} | context{try_inspect[1].code_context}\n"
+    # nm_sum = np.sum(audio_float32)
+    # if np.isnan(nm_sum):
+    #     try_inspect = inspect.stack()
+    #     print(try_inspect[2].function)
+    #     msg = f">> NAN in audio_float32\nVin: {vmin} | {vmax} --- Vout: {vmin_gained} | {vmax_gained}\
+    #         function {try_inspect[2].function} | code_context {try_inspect[2].code_context} \
+    #             || function {try_inspect[1].function} | context{try_inspect[1].code_context}\n"
         # log_message(msg, proc_log, 'a', True)
     
-    nm_sum = np.sum(audio_gained)
-    if np.isnan(nm_sum):
-        try_inspect = inspect.stack()
-        msg = f">> NAN in audio_gained\nVin: {vmin} | {vmax} --- Vout: {vmin_gained} | {vmax_gained}\
-            function {try_inspect[2].function} | code_context {try_inspect[2].code_context} \
-                || function {try_inspect[1].function} | context{try_inspect[1].code_context}\n"
+    # nm_sum = np.sum(audio_gained)
+    # if np.isnan(nm_sum):
+    #     try_inspect = inspect.stack()
+    #     msg = f">> NAN in audio_gained\nVin: {vmin} | {vmax} --- Vout: {vmin_gained} | {vmax_gained}\
+    #         function {try_inspect[2].function} | code_context {try_inspect[2].code_context} \
+    #             || function {try_inspect[1].function} | context{try_inspect[1].code_context}\n"
         # log_message(msg, proc_log, 'a', True)
-
-
 
     return audio_gained
 
@@ -190,28 +228,35 @@ def extend_audio(audio, start_index, end_index,
     
     return final_audio, (start_index, end_index)
 
-def extend_audio_bk(audio, limit_lower, limit_upper, length_min = 3, offset_samples = 0, verbose = False):
+def extend_audio_bk(audio, limit_lower, limit_upper, total_length, offset_samples, verbose = False):
 
     # Calculate how much silence we need to add to make the audio 8 minutes long
-    ext_length = sr * (length_min * 60) + offset_samples
-    extended_audio = np.zeros((int(ext_length),))
+    ext_length_plus_offset = total_length + offset_samples
+    extended_audio = np.zeros((int(ext_length_plus_offset),))
 
     # Calculate the range of indices where the original audio can be placed
     segment_start = limit_lower 
     segment_end = limit_upper - len(audio)
 
     # Calculate the start and end indices of the exclusive portion for this audio file
-    start_index = int(segment_start + (segment_end - segment_start) * random.random())
-    end_index = start_index + len(audio)
+    start_offset = max(0, (segment_end - segment_start) * random.random()) 
+
+    start_index = int(segment_start + start_offset)
+    end_index = min(start_index + len(audio), int(limit_upper))
 
     if start_index < 0:
         print(f'Warning! BK|Negative start_index. Audio length: {len(audio)} vs {limit_upper - limit_lower}')
+        print(f'    Details: segment start: {segment_start} - segment end: {segment_end} - start index: {start_index} - end index: {end_index}')
     if verbose:
         print(f'BK|start: {start_index} ({round(start_index/sr, 2)}) - end: {end_index} ({round(end_index/sr, 2)})')
 
+    # Check if slice indeces are integers
+    if not isinstance(start_index, int) or not isinstance(end_index, int):
+        raise ValueError("Slice indices must be integers")
+
     # Place the original audio at the exclusive portion
     final_audio = np.concatenate((extended_audio[:start_index], audio, extended_audio[end_index:]))
-    
+
     return final_audio, (start_index, end_index)
 
 
@@ -231,6 +276,38 @@ def gen_random_gaussian(min_val, max_val, max_attempts=10000):
         if min_val <= value <= max_val:
             return value
     raise ValueError("Failed to generate a valid value within the specified range after 10,000 attempts")
+
+
+
+def generate_csv_file_tts3(GT_log, output_csv_path, indx,
+                      single_name = 'DA_long',
+                      only_speaker = True):
+    GT_log = sorted(GT_log, key = lambda x: x[1])
+    speaker_name = ''
+
+    # specify filename for CSV file
+    filename = output_csv_path.joinpath(f'{single_name}_{indx}.csv')
+    # open file for writing with tab delimiter
+    with open(filename, 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile, delimiter='\t')
+
+        # write each tuple to a row in the file
+        for audio_name, start, end in GT_log:
+            name_column_parts = audio_name.split('_')
+            if len(name_column_parts) == 4:
+                current_substring = name_column_parts[-3]
+            elif len(name_column_parts) == 3:
+                current_substring = name_column_parts[-2]
+            else:
+                sys.exit(f"Wrong filename format for WAVs: {audio_name}")
+            
+            ## Verify the current_substring starts with 'ID-' and has 2 digits
+            if current_substring[:3] != 'ID-' or len(current_substring) != 5:
+                sys.exit(f"Wrong filename format for WAVs, no ID-/d/d: {audio_name}")
+
+            speaker_name = current_substring[-2:]
+
+            writer.writerow([speaker_name, 'TBD', round(start/sr,2), round(end/sr,2), audio_name])
 
 
 def generate_csv_file(GT_log, output_csv_path, indx,
@@ -333,6 +410,7 @@ def convert_param_dict(all_dict):
 def read_audio_name(list_audio_paths, indx):
     current_audio_path = list_audio_paths[indx]
     raw_data, samplerate = sf.read(current_audio_path)
+    current_audio_name = 'Placeholder'
     if samplerate != sr:
         sys.exit(f'ERROR! Audio is not 16K: {current_audio_path.name}')
 
@@ -357,23 +435,6 @@ def read_audio_name_from_dict(dict_speakers_paths, selected_speaker):
 
     return raw_audio, indx_others, current_audio_name
 
-def apply_reverb(input_wav, reverb_vals=(0.1, 1.6)):
-
-    if reverb_vals[0] != 0:
-        pedalboard = Pedalboard([
-                Reverb(
-                    room_size=reverb_vals[0],
-                )
-            ])
-
-        single_noise = np.asarray(input_wav)
-
-        single_noise = single_noise * reverb_vals[1] 
-
-        # Apply the effect to the audio
-        return pedalboard(single_noise, sample_rate=sr)
-    else:
-        return input_wav
 
 def amplify_audio_to_0db(audio):
     # Find the maximum absolute value in the audio array
@@ -450,24 +511,68 @@ def from_numpy_array(nparr, framerate):
 
     return dubseg
 
+def gen_labels_list(list_audio_paths):
+    """
+    Generate speaker labels for a list of audio paths.
+    """
+    list_spk_labels = []
+    for audio_path in list_audio_paths:
+        # Extract speaker label from the audio file name
+        speaker_label_substring = audio_path.stem.split('_')[1]
 
-def compress_numpy_audio(input_audio):
+        # Verify the label has the format 'ID-XX' where XX is a two-digit number
+        if not (speaker_label_substring.startswith('ID-') and len(speaker_label_substring) == 5):
+            sys.exit(f"Error: Invalid speaker label format in {audio_path.name}. Expected format 'ID-XX'.")
+        
+        # Extract the two-digit number from the label
+        speaker_label = speaker_label_substring[3:]  # Get the last two characters after 'ID-'
+
+        list_spk_labels.append(speaker_label)
+    return list_spk_labels
+
+def extract_main_speakers(list_audio_paths, selected_speakers):
+    """
+    Extract paths of main speakers based on selected speaker labels.
     
-    audio_int32 = np.int32(input_audio * 2147483647)
+    :param list_audio_paths: List of all audio file paths.
+    :param selected_speakers: List of selected speaker labels.
+    :return: List of paths for the main speakers.
+    """
+    list_main_spk_paths = []
+    
+    for audio_path in list_audio_paths:
+        # Extract speaker label from the audio file name
+        speaker_label_substring = audio_path.stem.split('_')[1]
+        
+        # Verify the label has the format 'ID-XX' where XX is a two-digit number
+        if not (speaker_label_substring.startswith('ID-') and len(speaker_label_substring) == 5):
+            sys.exit(f"Error: Invalid speaker label format in {audio_path.name}. Expected format 'ID-XX'.")
+        
+        # Extract the two-digit number from the label
+        speaker_label = speaker_label_substring[3:]  # Get the last two characters after 'ID-'
+        
+        if speaker_label in selected_speakers:
+            list_main_spk_paths.append(audio_path)
+    
+    return list_main_spk_paths
 
-    audio_segment = from_numpy_array(audio_int32, sr)
+# def compress_numpy_audio(input_audio):
+    
+#     audio_int32 = np.int32(input_audio * 2147483647)
 
-    # Apply a dynamic range compression
-    compressed_segment = compress_dynamic_range(audio_segment,
-                                                threshold=-20.0,
-                                                ratio=10.0,
-                                                attack=200.0,
-                                                release=1000.0)
+#     audio_segment = from_numpy_array(audio_int32, sr)
 
-    compressed_numpy_int32 = compressed_segment.get_array_of_samples()
-    compressed_numpy_int32 = np.array(compressed_numpy_int32)
+#     # Apply a dynamic range compression
+#     compressed_segment = compress_dynamic_range(audio_segment,
+#                                                 threshold=-20.0,
+#                                                 ratio=10.0,
+#                                                 attack=200.0,
+#                                                 release=1000.0)
 
-    # Normalize and convert to float32 format
-    compressed_numpy_float32 = (compressed_numpy_int32 / 2147483647).astype(np.float32)
+#     compressed_numpy_int32 = compressed_segment.get_array_of_samples()
+#     compressed_numpy_int32 = np.array(compressed_numpy_int32)
 
-    return compressed_numpy_float32
+#     # Normalize and convert to float32 format
+#     compressed_numpy_float32 = (compressed_numpy_int32 / 2147483647).astype(np.float32)
+
+#     return compressed_numpy_float32

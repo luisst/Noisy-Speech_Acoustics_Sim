@@ -13,19 +13,22 @@ import numpy as np
 import pyroomacoustics as pra
 import time
 import sys
+import os
 import soundfile as sf
+from pathlib import Path
 
-from cfg_pyroom_VAD import cfg_info, gen_rand_coordinates, \
-    gen_rand_table_coords, sr
+
+from cfg_pyroom_VAD import gen_room_config, gen_rand_coordinates, \
+    gen_rand_table_coords
 
 from plot_configuration_room import plot_single_configuration
 
 from DA_pyroom_utils import norm_others_float32, log_message, gain_variation, \
     gen_random_on_range, gen_random_on_range, gen_random_on_range, \
     sum_arrays, eliminate_noise_start_ending, extend_audio, convert_param_dict, \
-    generate_csv_file, remove_dc_component, gen_random_gaussian, extend_audio_bk, \
-    read_audio_name, amplify_audio_to_3_2db, apply_reverb, amplify_audio_to_0db, \
-    name_mapping_TTS2, create_random_sequence, compress_numpy_audio
+    generate_csv_file_tts3, remove_dc_component, gen_random_gaussian, extend_audio_bk, \
+    read_audio_name, amplify_audio_to_3_2db, amplify_audio_to_0db, \
+    name_mapping_TTS2, create_random_sequence, create_random_sequence2
 
 
 class DAwithPyroom(object):
@@ -34,13 +37,24 @@ class DAwithPyroom(object):
     input signal + 4 random crosstalk + background noise
     """
 
-    def __init__(self, input_wav_path,
+    def __init__(self, input_wav_path, ordered_speech_txt_path,
                  noise_dict, output_dict, 
                  all_params):
         """
         Initialize all the params from the dictionaries. Examples provided in the Main_long.py file
         """
-        self.audio_name = 'DA_long'
+
+        dict_params = convert_param_dict(all_params)
+
+        # Double talk settings
+        self.double_talk_flag = dict_params['double_talk_flag']
+        self.pattern_flag = dict_params['pattern_flag']
+
+        self.ordered_sp_flag = dict_params['ordered_sp_flag']
+
+        self.audio_name = 'D1'
+        self.audio_name2 = 'D2'
+
         noise_path1 = noise_dict['noise_npy_folder'].joinpath(noise_dict['noise_e1_soft'])
         noise_path2 = noise_dict['noise_npy_folder'].joinpath(noise_dict['noise_e2_loud'])
         noise_path3 = noise_dict['noise_npy_folder'].joinpath(noise_dict['noise_e3_distance'])
@@ -48,44 +62,60 @@ class DAwithPyroom(object):
         self.noiseE1_data = np.load(noise_path1, allow_pickle=True) #
         self.noiseE2_data = np.load(noise_path2, allow_pickle=True) #
         self.data_E3 = np.load(noise_path3, allow_pickle=True) #
+        self.ai_noise_directory = Path.home().joinpath('Dropbox','DATASETS_AUDIO','TTS3_dt','TTS3_noises_all') 
+
+        self.max_iter = 0
+        self.complete_flag = False
+        self.list_audio_paths = []
 
         # Read all wav paths
-        self.list_audio_paths = sorted(list(input_wav_path.glob('*.wav')))
+        if self.ordered_sp_flag:
 
-        dict_params = convert_param_dict(all_params)
+            # Read the ordered speech txt file
+            with open(ordered_speech_txt_path, 'r') as f:
+                lines = f.readlines()
+            # Extract the wav file paths from the lines
+            for line in lines:
+                line = line.strip()
+                if line.endswith('.wav'):
+                    wav_path = Path(line)
+                    if wav_path.exists():
+                        self.list_audio_paths.append(wav_path)
+                    else:
+                        print(f"Warning: {wav_path} does not exist.")
+            self.max_iter = len(self.list_audio_paths)
+
+        else:
+            self.list_audio_paths = sorted(list(input_wav_path.glob('*.wav')))
+
 
         self.output_csv_path = output_dict['output_csv_path']
+        self.output_csv_path_2 = self.output_csv_path.parent.joinpath(f"{self.audio_name}_dt.csv")
         self.proc_log = output_dict['output_log_path']
         self.output_folder = output_dict['output_wav_path']
 
         self.bk_min_gain = dict_params['bk_gain_range'][0]
         self.bk_max_gain = dict_params['bk_gain_range'][1]
-        self.bk_min_offset = dict_params['bk_offset_range'][0]
-        self.bk_max_offset = dict_params['bk_offset_range'][1]
 
         self.bk_init_reduce = dict_params['bk_init_reduce']
         self.bk_inner_min = dict_params['bk_inner_gain_range'][0]
         self.bk_inner_max = dict_params['bk_inner_gain_range'][1]
         self.bk_inner_dur_min = dict_params['bk_inner_dur_range'][0] 
         self.bk_inner_dur_max = dict_params['bk_inner_dur_range'][1]
-        self.bk_reverb = dict_params['bk_reverb']
 
+        self.gain_var_flag = dict_params['gain_var_flag']
         self.sp_init_reduce = dict_params['sp_init_reduce']
         self.sp_inner_min = dict_params['sp_inner_gain_range'][0]
         self.sp_inner_max = dict_params['sp_inner_gain_range'][1]
         self.sp_inner_dur_min = dict_params['sp_inner_dur_range'][0] 
         self.sp_inner_dur_max = dict_params['sp_inner_dur_range'][1]
-        self.sp_reverb = dict_params['sp_reverb']
 
-        # Generate a random seconds offset for the main audio
-        self.overall_offset = random.randint(3, 6)
-        print(f'Overall offset: {self.overall_offset}')
 
         self.ns_min_gain = dict_params['ns_gain_range'][0]
         self.ns_max_gain = dict_params['ns_gain_range'][1]
 
         self.bk_num = dict_params['bk_num']
-        self.sr         = sr
+        self.sr         = 16000
         self.output_number = dict_params['output_samples_num']
 
         self.sp_gain = dict_params['sp_gain']
@@ -96,12 +126,17 @@ class DAwithPyroom(object):
         self.bk_num_segments = dict_params['bk_num_segments'] 
         self.rnd_offset_secs = dict_params['rnd_offset_secs']
 
-        self.length_min = dict_params['length_min']
-        self.noise_dist = dict_params['ns_close_dist']
+        self.length_minutes = dict_params['length_minutes']
         self.min_offset_secs = dict_params['bk_ext_offset_range'][0]
         self.max_offset_secs = dict_params['bk_ext_offset_range'][1]
         self.store_sample = dict_params['debug_store_audio']
         self.number_noise_samples = dict_params['ns_number_samples'] 
+
+        # self.max_silence_ai = 0.5
+        # self.ns_ai_gain = 0.6
+
+        self.max_silence_ai = 0.5
+        self.ns_ai_gain = 0.5
 
         if  self.sp_gain <= 0:
             self.speaker_flag = False
@@ -117,6 +152,8 @@ class DAwithPyroom(object):
             self.bk_flag = False
         else:
             self.bk_flag = True
+        
+
 
         # Numpy output array according to the desired output
         self.x_data_DA = []
@@ -125,100 +162,89 @@ class DAwithPyroom(object):
         counter_small = 0
 
 
-    def audio_mod(self, signal, gain_value, offset_value,
-                  length_current_audio, outmin_current, outmax_current, no_offset = False):
+    def audio_mod(self, signal, gain_value,
+                  outside_idx = 0,
+                  noise_audio_name = 'noise_audio'):
         """
         Modifies the signal with a gain_value (percentage) and
         offset_value(percentage) and applies a random gain variation at the output.
         """
 
-        # counter for small audios
-        global counter_small
-
-        signal_length = signal.shape[0]
-        signal_offset = np.zeros_like(signal)
-        others_current_audio = np.zeros((length_current_audio),
+        signal_result = np.zeros_like((signal),
                                         dtype='float32')
 
-        # Init values
-        factor1 = 1.0
-        factor2 = 1.0
+        others_current_audio = signal
+        
 
-        if no_offset:
-            others_current_audio = signal
-        else:
-            factor_length = np.min([length_current_audio, signal_length])
-            
-            # Calculate the offset factors at the start and end
-            factor1 = int(factor_length*((abs(offset_value) - offset_value)/2))
-            factor2 = int(factor_length*((abs(offset_value) + offset_value)/2))
+        # Verify the others_current_audio has a length greater than 0
+        if len(others_current_audio) == 0:
+            msg = f">> Audio has a length of 0. {outside_idx} - {noise_audio_name}\n"
+            log_message(msg, self.proc_log, 'a', True)
+            good_audio = False
+            return good_audio, signal_result
 
-            # Apply the offset factors
-            signal_offset[factor1:(signal_length - factor2)] = \
-                signal[factor2:(signal_length - factor1)]
 
-            # Trim offset signal to the real length of the audio
-            if signal_length > length_current_audio:
-                others_current_audio = signal_offset[0:length_current_audio]
-            else:
-                others_current_audio[0:signal_length] = signal_offset
-            
+        # Verify the others_current_audio is not empty
+        if np.all(others_current_audio== 0):
+            msg = f">> Audio has all 0. {outside_idx} - {noise_audio_name}\n"
+            log_message(msg, self.proc_log, 'a', True)
+            good_audio = False
+            return good_audio, signal_result
+        
+        # Verify others_current_audio max and min values are not equal
+        if min(others_current_audio) == max(others_current_audio):
+            msg = f">> Audio max and min values are equal. {outside_idx} - {noise_audio_name}\n"
+            log_message(msg, self.proc_log, 'a', True)
+            good_audio = False
+            return good_audio, signal_result
+
         # Apply gain value and convert to required output format
         signal_offset_norm  = norm_others_float32(others_current_audio,
-                                                  gain_value = gain_value,
-                                                  outmin = outmin_current,
-                                                  outmax = outmax_current)
-
-        # Verify the audio is large enough to withstand the offset
-        audio_sum = np.sum(signal_offset_norm)
-        if audio_sum == 0:
-            if factor1 >= length_current_audio:
-                counter_small = counter_small + 1
-                msg = f"> small audio encountered: counter {counter_small} \n"
-                log_message(msg, self.proc_log, 'a', True)
-            else:
-                msg = f"> Cero was found. Signal_offset {offset_value}. Factor {factor1} - {factor2} \n|"
-                msg += f"INDEXS signal_offset {factor1} - {(signal_length - factor2)}. signal {factor2} - {(signal_length - factor1)}\n"
-                log_message(msg, self.proc_log, 'a', True)
-
+                                                  gain_value = gain_value)
 
         # Verify the audio normalization did not failed
+        audio_sum = np.sum(signal_offset_norm)
         if np.isnan(audio_sum):
-            msg = f">> NaN found in Audio. Offset: {str(offset_value)}\n"
+            msg = f">> NaN found in Audio - {outside_idx} - {noise_audio_name}\n"
             log_message(msg, self.proc_log, 'a', True)
+            good_audio = False
+            return good_audio, signal_result
 
         signal_result = gain_variation(signal_offset_norm, init_reduce = self.bk_init_reduce,
                                        factor_min=self.bk_inner_min, factor_max=self.bk_inner_max,
                                        min_duration_ratio = self.bk_inner_dur_min, 
                                        max_duration_ratio = self.bk_inner_dur_max,
                                        verbose=False)
+        
+        good_audio = True
 
-        return signal_result
+        return good_audio, signal_result
 
 
-    def prepare_bk_audio(self, current_audio_info, no_offset = False, return_indx = False):
-
-        length_current_audio, outmin_current, outmax_current = current_audio_info 
+    def prepare_bk_audio(self):
 
         indx_others = random.randint(0, len(self.list_audio_paths)-1)
-        others_audio, _ = read_audio_name(self.list_audio_paths, indx_others)
-        others_audio = others_audio.astype('float32')
-        # others_audio = apply_reverb(others_audio, reverb_vals=self.bk_reverb)
-        others_audio = np.trim_zeros(others_audio)
+        others_audio_original, noise_audio_name = read_audio_name(self.list_audio_paths, indx_others)
+        others_audio_f32 = others_audio_original.astype('float32')
+        others_audio_trimmed = np.trim_zeros(others_audio_f32)
 
-        offset_value = gen_random_on_range(self.bk_min_offset, self.bk_max_offset)
+        audio_bk_ready = np.zeros_like(others_audio_f32)
 
         gain_value = gen_random_gaussian(self.bk_min_gain, self.bk_max_gain)
-        
-        audio_bk_ready = self.audio_mod(others_audio, gain_value,
-                                       offset_value, length_current_audio,
-                                       outmin_current, outmax_current,
-                                       no_offset=no_offset)
 
-        if return_indx:
-            return audio_bk_ready, indx_others
+        # Skip if audio trimmed is all zeros
+        if np.all(others_audio_trimmed == 0):
+            msg = f">>>>> Audio is empty: {indx_others} {noise_audio_name}\n"
+            log_message(msg, self.proc_log, 'a', True)
+            good_audio = False
         else:
-            return audio_bk_ready
+            good_audio, audio_bk_ready = self.audio_mod(others_audio_trimmed, gain_value,
+                                        outside_idx=indx_others,
+                                        noise_audio_name=noise_audio_name)
+ 
+        return good_audio, audio_bk_ready, indx_others, noise_audio_name
+  
+  
 
 
     def gen_long_noise(self, current_audio_info, 
@@ -251,7 +277,67 @@ class DAwithPyroom(object):
         return np.concatenate(selected_arrays)
 
 
-    def create_long_audio_others(self, current_audio_info, num_segments = 20, length_min = 3, verbose = False):
+    def generate_long_audio_from_folder(self, ai_noise_directory, length_current_audio, sr, max_silence_ai, verbose=False):
+        """
+        Generate a long audio file by sampling random audio files from a folder.
+        Includes random seconds of silence between samples and trims the last audio
+        to make the length exactly `length_current_audio`.
+
+        Parameters:
+            ai_noise_directory (str): Path to the folder containing audio files.
+            length_current_audio (int): Desired length of the output audio in samples.
+            sr (int): Sampling rate of the audio files.
+            verbose (bool): If True, print debug information.
+
+        Returns:
+            np.ndarray: The generated long audio of length `length_current_audio`.
+        """
+        # Get a list of all audio files in the directory
+        noise_audio_files = [os.path.join(ai_noise_directory, f) for f in os.listdir(ai_noise_directory) if f.endswith('.wav')]
+        if not noise_audio_files:
+            raise ValueError("No audio files found in the specified directory.")
+
+        # Initialize the output audio array
+        current_aiNoise_long_audio = np.zeros(length_current_audio, dtype='float32')
+        total_length = 0
+
+        while total_length < length_current_audio:
+            # Randomly select an audio file
+            ai_selected_file = random.choice(noise_audio_files)
+            if verbose:
+                print(f"Selected file: {ai_selected_file}")
+
+            # Read the audio file
+            current_ai_noise, _ = sf.read(ai_selected_file, dtype='float32')
+
+            # Trim silence from the audio
+            current_ai_noise = np.trim_zeros(current_ai_noise)
+
+            # Generate a random silence duration (in samples)
+            max_silence_duration = int(max_silence_ai * sr)  # Max silence of 0.5 seconds
+            silence_duration = random.randint(0, max_silence_duration)
+            silence = np.zeros(silence_duration, dtype='float32')
+
+            # Concatenate the audio and silence
+            audio_with_silence = np.concatenate((silence, current_ai_noise))
+
+            # Check if adding this audio exceeds the desired length
+            remaining_length = length_current_audio - total_length
+            if len(audio_with_silence) > remaining_length:
+                # Trim the audio to fit the remaining length
+                audio_with_silence = audio_with_silence[:remaining_length]
+
+            # Add the audio to the output
+            current_aiNoise_long_audio[total_length:total_length + len(audio_with_silence)] = audio_with_silence
+            total_length += len(audio_with_silence)
+
+            if verbose:
+                print(f"Current total length: {total_length}/{length_current_audio}")
+
+        return current_aiNoise_long_audio
+
+
+    def create_long_audio_others(self, current_audio_info, verbose = False):
 
         # Generate initial offset
         offset_value = gen_random_on_range(self.min_offset_secs*self.sr, self.max_offset_secs*self.sr)
@@ -260,18 +346,21 @@ class DAwithPyroom(object):
             print(f'Offset in secs: {round(offset_value/self.sr, 2)}')
 
         # Divide the n minutes into segments and randomly assign each segment to an audio file
-        segments = np.linspace(0 + offset_value, length_min*60*self.sr + offset_value, num_segments + 1)
-        segment_limits = [(segments[i], segments[i+1]) for i in range(num_segments)]
+        segments = np.linspace(0 + offset_value, self.length_minutes*60*self.sr + offset_value, self.bk_num_segments + 1)
+        segment_limits = [(segments[i], segments[i+1]) for i in range(self.bk_num_segments)]
         random.shuffle(segment_limits)
 
         list_of_audios = []
 
         # Call the extend_audio function for each input audio file with its corresponding limit_lower and limit_upper values
-        for idx in range(0, num_segments):
+        for idx in range(0, self.bk_num_segments):
 
             # Apply mods to audio here:
-            current_audio, random_idx = self.prepare_bk_audio(current_audio_info, no_offset = True, return_indx=True)
+            good_audio, current_audio, random_idx, noise_audio_name = self.prepare_bk_audio()
 
+            if not good_audio:
+                print(f'<<< Skipped! Audio {random_idx} - {noise_audio_name} is not good')
+                continue
             
             limit_lower, limit_upper = segment_limits[idx]
 
@@ -280,12 +369,23 @@ class DAwithPyroom(object):
                       ({round(limit_lower/self.sr, 2)}) - {limit_upper} \
                       ({round(limit_upper/self.sr, 2)})')
 
+            length_extended_sp, _, _ = current_audio_info 
+
+            total_length_audio = self.length_minutes * 60 * self.sr
+
+            # Raise error if total_length_audio is different than length_extended_sp
+            if total_length_audio != length_extended_sp:
+                msg = f">> Error! total_length_audio != length_extended_sp | Audio {random_idx} - {noise_audio_name}\n"
+                msg += f"total_length_audio: {total_length_audio} \t length_extended_sp: {length_extended_sp}\n"
+                log_message(msg, self.proc_log, 'a', True)
+                raise ValueError("total_length_audio != length_extended_sp")
+
             ext_audio_raw, _ = extend_audio_bk(current_audio, limit_lower, limit_upper, 
-                                                        length_min = length_min,
-                                                        offset_samples = offset_value,
+                                                        total_length_audio,
+                                                        offset_value,
                                                         verbose = False)
 
-            ext_audio = ext_audio_raw[0:length_min*60*self.sr]
+            ext_audio = ext_audio_raw[0:total_length_audio]
 
             if verbose:
                 print(f'Current segment extended {idx}: {len(ext_audio_raw)}')
@@ -297,28 +397,37 @@ class DAwithPyroom(object):
         return result_audio
 
 
-    def create_long_audio_main(self, max_offset = 4, length_min = 3, overall_offset = 0, cc_flag = False, verbose = False):
+    def create_long_audio_main(self, max_offset = 4,\
+                            gain_var_flag = True, sp_idx = -1, verbose = False):
 
         GT_log = []
 
         seg_idx = 0
 
-        total_ext_length = sr * (length_min*60)
+        total_ext_length = self.sr * self.length_minutes * 60
         index_list = list(range(len(self.list_audio_paths)))
         list_of_audios = []
 
-        prev_stop_sample = 0
+        prev_stop_time = 0
 
         while 1:
-            # Choose a random element from the list
-            random_idx = random.choice(index_list)
-            index_list.remove(random_idx)
+            if sp_idx == -1:
+                # Choose a random element from the list
+                random_idx = random.choice(index_list)
+                index_list.remove(random_idx)
+            else:
+                random_idx = sp_idx
+                if sp_idx == len(self.list_audio_paths)-1:
+                    self.complete_flag = True
+                    print(f'>>>>>>>>>>>>>>>>>>>>>>>>>>New iteration, sp_idx: {sp_idx}')
+                    sp_idx = 0
+                else:
+                    sp_idx += 1
 
             # Read wav file
 
             raw_audio, current_audio_name = read_audio_name(self.list_audio_paths, 
                                                             random_idx)
-            # raw_audio = apply_reverb(raw_audio, reverb_vals=self.sp_reverb)
 
             total_length_audio = len(raw_audio)
 
@@ -332,7 +441,7 @@ class DAwithPyroom(object):
             end_index = start_index + total_length_audio
 
             if (total_ext_length - end_index) < total_length_audio:
-                print(f'Last iteration: {start_index} - {end_index} | audio_len: {total_length_audio} | left: {total_ext_length - end_index}')
+                # print(f'Last iteration: {start_index} - {end_index} | audio_len: {total_length_audio} | left: {total_ext_length - end_index}')
                 break
 
             if start_index < 0:
@@ -344,42 +453,35 @@ class DAwithPyroom(object):
 
             seg_idx = end_index
             # Apply mods to audio here:
-            current_audio = gain_variation(raw_audio, 
-                                           init_reduce = self.sp_init_reduce,
-                                           factor_min=self.sp_inner_min, 
-                                           factor_max=self.sp_inner_max,
-                                           min_duration_ratio = self.sp_inner_dur_min, 
-                                           max_duration_ratio = self.sp_inner_dur_max,
-                                           verbose=False)
+
+            if gain_var_flag:
+                current_audio = gain_variation(raw_audio, 
+                                            init_reduce = self.sp_init_reduce,
+                                            factor_min=self.sp_inner_min, 
+                                            factor_max=self.sp_inner_max,
+                                            min_duration_ratio = self.sp_inner_dur_min, 
+                                            max_duration_ratio = self.sp_inner_dur_max,
+                                            verbose=False)
+            else:
+                current_audio = raw_audio
             
             packed_extended_audio_result = extend_audio(current_audio, 
                                                         start_index, end_index, 
                                                         total_ext_length, verbose=False)
 
             ext_audio = packed_extended_audio_result[0]
-            current_start_sample, current_stop_sample = packed_extended_audio_result[1] 
+            current_start_time, current_stop_time = packed_extended_audio_result[1] 
 
-            current_start_sample += overall_offset * self.sr
-            current_stop_sample += overall_offset * self.sr
-
-            if current_start_sample <= prev_stop_sample:
-                print(f'Error! there should be no overlaps! {current_start_sample} - {current_stop_sample}')
+            if current_start_time <= prev_stop_time:
+                print(f'Error! there should be no overlaps! {current_start_time} - {current_stop_time}')
             
-            prev_stop_sample = current_stop_sample
+            prev_stop_time = current_stop_time
 
-            if current_start_sample >= length_min*60*self.sr:
-                print(f'Error! start time is larger than {length_min*60} seconds.\t {(current_start_sample/self.sr):.2f} - {(current_stop_sample/self.sr):.2f}')
-                continue    
-            elif current_stop_sample >= length_min*60*self.sr:
-                print(f'Warning! stop time is larger than {length_min*60} seconds.\t {(current_start_sample/self.sr):.2f} - {(current_stop_sample/self.sr):.2f}')
-                current_stop_sample = length_min*60
-            
+            GT_log.append((current_audio_name, current_start_time, current_stop_time))
 
-            GT_log.append((current_audio_name, current_start_sample, current_stop_sample))
-
-            if len(ext_audio) > length_min*60*self.sr:
+            if len(ext_audio) > total_ext_length:
                 print(f'Warning, main audio length is {len(ext_audio)}, larger than {len(ext_audio)}')
-                ext_audio = ext_audio[0:length_min*60*self.sr]
+                ext_audio = ext_audio[0:total_ext_length]
 
             ext_audio = remove_dc_component(ext_audio)
             list_of_audios.append(ext_audio)
@@ -387,43 +489,25 @@ class DAwithPyroom(object):
         # Select which main speakers to add into the result audio
         number_audios = len(list_of_audios)
         result_audio = np.zeros_like(list_of_audios[0])
-        GT_log_filtered = []
 
-        if cc_flag:
-            bool_sequence = create_random_sequence(number_audios, flip_probability=0.1)
-
-            ## Find which bool count is higher, 0 or 1
-            count_0 = bool_sequence.count(0)
-            count_1 = bool_sequence.count(1)
-
-            print(f'>>> Second speaker PREV <<< \t 0: {count_0} \t 1: {count_1}')
-
-            ## If 0 is higher, invert the values
-            if count_0 > count_1:
-                bool_sequence = [1 if x == 0 else 0 for x in bool_sequence]
-
-            count_0a = bool_sequence.count(0)
-            count_1a = bool_sequence.count(1)
-
-            print(f'>>> Second speaker AFTER <<< \t 0: {count_0a} \t 1: {count_1a}')
-        else:
+        # Conversation Pattern
+        if self.pattern_flag:
             bool_sequence = create_random_sequence(number_audios)
+            # bool_sequence = create_random_sequence2(number_audios)
+        else:
+            bool_sequence = [0]*number_audios 
 
-            count_0 = bool_sequence.count(0)
-            count_1 = bool_sequence.count(1)
+        # print(f'Bool sequence:\n{bool_sequence}')
 
-            print(f'> First speaker flag < \t 0: {count_0} \t 1: {count_1}')
-
+        GT_log_filtered = []
         for i in range(0, number_audios):
             if bool_sequence[i] == 0:
                 result_audio += list_of_audios[i]
                 GT_log_filtered.append(GT_log[i])
-        
-        # Offset for the final audio
-        offset_final = int(overall_offset*self.sr)
-        final_audio = result_audio[offset_final:offset_final + length_min*60*self.sr]
+            # else:
+            #     print(f'Audio {i} skipped')
 
-        return final_audio, GT_log_filtered
+        return result_audio, GT_log_filtered, sp_idx
 
 
     def long_distance_noise(self, number_samples=45, length_min=3, verbose = False):
@@ -456,14 +540,16 @@ class DAwithPyroom(object):
 
                 return audio
 
-    def sim_single_signal(self, indx=0):
+    def sim_single_signal(self, indx=0, sp_idx = -1):
         """
         Pyroomacoustics simulation with 3 random other audios
         from the same x_data + 1 noise from AudioSet
         """
 
+        cfg_info = gen_room_config()
+
         shoebox_vals, mic_dict, lower_left_point, upper_right_point, \
-        lower_left_table, upper_right_table, abs_coeff, fs = cfg_info
+        lower_left_table, upper_right_table, noise_coords, ai_noise_coords, abs_coeff, fs = cfg_info
 
         # Create 3D room and add sources
         room = pra.ShoeBox(shoebox_vals,
@@ -476,36 +562,16 @@ class DAwithPyroom(object):
                                 upper_right_point,  lower_left_table,
                                 upper_right_table, table_margin = 0.3)
 
-        main_speaker_coords2, tuple_outside_inside2 = gen_rand_table_coords(lower_left_point,
-                                upper_right_point,  lower_left_table,
-                                upper_right_table, table_margin = 0.3)
 
-        result_audio, GT_log = self.create_long_audio_main(max_offset = self.rnd_offset_secs,
-                                                            length_min = self.length_min, 
-                                                            overall_offset = 0,
+
+        result_audio, GT_log1, sp_idx = self.create_long_audio_main(max_offset = self.rnd_offset_secs,
+                                                            gain_var_flag = self.gain_var_flag,
+                                                            sp_idx = sp_idx,
                                                             verbose = False)
+        print(f'main index after main audio: {sp_idx}')
 
-        current_audio_name1 = self.audio_name + f'-X1'
-        generate_csv_file(GT_log, self.output_csv_path,
-                          indx, name_mapping_TTS2,
-                          current_audio_name1, only_speaker=True) 
-
-        room.add_source(main_speaker_coords,
-                        signal=result_audio*self.sp_gain)
-
-        result_audio2, GT_log = self.create_long_audio_main(max_offset = self.rnd_offset_secs,
-                                                            length_min = self.length_min, 
-                                                            overall_offset = self.overall_offset,
-                                                            cc_flag = True,
-                                                            verbose = False)
-
-        current_audio_name2 = self.audio_name + f'-X2'
-        generate_csv_file(GT_log, self.output_csv_path,
-                          indx, name_mapping_TTS2,
-                          current_audio_name2, only_speaker=True) 
-
-        room.add_source(main_speaker_coords2,
-                        signal=result_audio2*self.sp_gain)
+        generate_csv_file_tts3(GT_log1, self.output_csv_path,
+                          indx, self.audio_name, only_speaker=True) 
 
         length_current_audio = len(result_audio)
         outmin_current = result_audio.min()
@@ -513,11 +579,33 @@ class DAwithPyroom(object):
 
         current_audio_info = [length_current_audio, outmin_current, outmax_current]
 
+        room.add_source(main_speaker_coords,
+                        signal=result_audio*self.sp_gain)
+
+        # Second main speaker
+        if self.double_talk_flag:
+            result_audio2, GT_log2, _ = self.create_long_audio_main(max_offset = self.rnd_offset_secs,
+                                                                gain_var_flag = self.gain_var_flag,
+                                                                verbose = False)
+
+            generate_csv_file_tts3(GT_log2, self.output_csv_path,
+                            indx, self.audio_name2, only_speaker=True) 
 
 
-        if self.store_sample and (indx == 0):
+
+            main_speaker_coords2 = [main_speaker_coords[0] + 0.4, main_speaker_coords[1] + 0.4, main_speaker_coords[2]]
+
+            room.add_source(main_speaker_coords2,
+                            signal=result_audio2*self.sp_gain)
+            
+            if indx == 0:
+                output_path = self.proc_log.parent.joinpath("main_audio_sample_dt.wav")
+                sf.write(output_path, result_audio2*self.sp_gain, self.sr, subtype='FLOAT')
+
+        if indx == 0:
             output_path = self.proc_log.parent.joinpath("main_audio_sample.wav")
             sf.write(output_path, result_audio*self.sp_gain, self.sr, subtype='FLOAT')
+
             print(f'Length of {indx}th main audio: {len(result_audio)}({round(len(result_audio)/self.sr, 2)})')
 
         single_cfg = {'mic': [mic_dict['mic_0'][0], mic_dict['mic_0'][1]],
@@ -534,8 +622,6 @@ class DAwithPyroom(object):
             for i in range(0, self.bk_num):
 
                 result_audio = self.create_long_audio_others(current_audio_info, 
-                                                                num_segments = self.bk_num_segments,
-                                                                length_min = self.length_min,
                                                                 verbose = False)
                                                             
                 # Randomly select the coordinates based on position
@@ -556,15 +642,29 @@ class DAwithPyroom(object):
 
         # Add Noise 
         if self.noise_flag:
+            # Lalal noise
+            ai_long_noise = self.generate_long_audio_from_folder(self.ai_noise_directory,
+                                                            length_current_audio,
+                                                            self.sr,
+                                                            self.max_silence_ai,
+                                                            verbose=False)
+
+            if self.store_sample and (indx == 0):
+                output_path = self.proc_log.parent.joinpath("long_ai_lalal_noise.wav")
+                sf.write(output_path, ai_long_noise*self.ns_ai_gain, self.sr, subtype='FLOAT')
+                print(f'{indx}-Length of LALAL noise: {len(ai_long_noise)}({round(len(ai_long_noise)/self.sr, 2)})')
+
+
+            room.add_source(ai_noise_coords,
+                            signal = ai_long_noise*self.ns_ai_gain)
+
+            # Distance E1 & E2 Noise
             noise_audio_long = self.gen_long_noise(current_audio_info, self.ns_min_gain, self.ns_max_gain)
 
             if self.store_sample and (indx == 0):
                 output_path = self.proc_log.parent.joinpath("long_noise.wav")
                 sf.write(output_path, noise_audio_long*self.ns_gain, self.sr, subtype='FLOAT')
                 print(f'{indx}-Length of noise: {len(noise_audio_long)}({round(len(noise_audio_long)/self.sr, 2)})')
-
-            noise_x, noise_y, noise_z = mic_dict["mic_0"]
-            noise_coords = [noise_x + self.noise_dist, noise_y + self.noise_dist, noise_z]
 
             single_cfg['noise'] = (noise_coords[0], noise_coords[1])
             
@@ -577,7 +677,7 @@ class DAwithPyroom(object):
                                                             upper_right_point)
 
             long_noise_E3 = self.long_distance_noise(number_samples=self.number_noise_samples,
-                                                    length_min = self.length_min)
+                                                    length_min = self.length_minutes)
             if self.store_sample and (indx == 0):
                 output_path = self.proc_log.parent.joinpath("long_noise_E3_X.wav")
                 sf.write(output_path, long_noise_E3*self.ns_gain_away, self.sr, subtype='FLOAT')
@@ -586,9 +686,12 @@ class DAwithPyroom(object):
             room.add_source(rand_coordinates_noise_E3,
                             signal = long_noise_E3*self.ns_gain_away)
 
+
+        sim_audio = np.zeros((length_current_audio), dtype='float32')
+
         R = np.array([[mic_dict["mic_0"][0], mic_dict["mic_1"][0]],
-                     [mic_dict["mic_0"][1], mic_dict["mic_1"][1]], 
-                     [mic_dict["mic_0"][2], mic_dict["mic_1"][2]]])
+                    [mic_dict["mic_0"][1], mic_dict["mic_1"][1]], 
+                    [mic_dict["mic_0"][2], mic_dict["mic_1"][2]]])
         room.add_microphone(R)
 
         # Compute image sources
@@ -604,18 +707,45 @@ class DAwithPyroom(object):
             msg += f"{indx} -- Len {length_current_audio}\n"
             log_message(msg, self.proc_log, 'a', True)
 
-        return sim_audio
+        return sim_audio, sp_idx
 
 
     def sim_vad_dataset(self):
         prev_time = time.process_time()
-        for indx in range(0, self.output_number):
-            single_x_DA = self.sim_single_signal(indx=indx)
+        msg = f'Starting simulation of {self.output_number} audios\n'
+        log_message(msg, self.proc_log, 'w', True)
+
+        # random or ordered main speaker
+        if self.ordered_sp_flag:
+            main_idx = 0
+            # main_idx = 8956
+            # main_idx = 15162
+        else:
+            main_idx = -1
+
+        # for indx in range(0, self.output_number):
+        indx = 0
+        while True:
+            if self.ordered_sp_flag:
+                if self.complete_flag:
+                    print(f'End of ordered speech list: {indx}')
+                    break
+            else:
+                if indx == self.output_number:
+                    print(f'End of random speech list: {indx}')
+                    break
+            
+            print(f'{indx} - Processing {main_idx} audio')
+            single_x_DA, main_idx = self.sim_single_signal(indx=indx, sp_idx=main_idx)
+
+            # Calculate percentage of done main_idx compared to self.max_iter
+            if self.ordered_sp_flag:
+                percentage_done = (main_idx / self.max_iter) * 100
+                print(f'\t\tpost main_idx: {main_idx} | {percentage_done:.2f}%')
 
             single_x_DA_trimmed = eliminate_noise_start_ending(single_x_DA, 0.00001)
 
             # Apply a high-pass filter to remove the DC component 
-            
             normalized_audio = amplify_audio_to_0db(single_x_DA_trimmed)
 
             normalized_audio = remove_dc_component(normalized_audio)
@@ -628,12 +758,15 @@ class DAwithPyroom(object):
             output_path_wav = self.output_folder.joinpath(new_name_wav) 
             sf.write(str(output_path_wav), amp_audio, self.sr, subtype='FLOAT')
 
-            if indx%20 == 0:
+            if indx%5 == 0:
                 current_time_100a = time.process_time()
                 time_100a = current_time_100a - prev_time
 
-                msg = f"{indx} | time for 100 audios: {time_100a:.2f}\n"
+                msg = f"{indx} | time for 5 audios: {time_100a:.2f}\n"
                 log_message(msg, self.proc_log, 'a', True)
                 prev_time = current_time_100a
+            
+            indx += 1
 
         print("These number of small audios:" + str(counter_small))
+
